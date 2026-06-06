@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     DATABASE_URL: str
 
-    OPENAI_API_KEY: str
+    AI_API_KEY: str
     AI_MODEL: str = "gemini-3.1-flash-lite"
 
     TELEGRAM_BOT_TOKEN: str

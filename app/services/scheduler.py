@@ -39,11 +39,11 @@ def setup_scheduler():
         replace_existing=True
     )
 
-    # 4. Refresh Threads Token on the 1st and 15th of every month at 02:00 AM
-    # (Tokens expire in 60 days, so twice a month is very safe)
+    # 4. Refresh Threads Token on the 1st and 30th of every month at 02:00 AM
+    # (Tokens expire in 60 days, so once a month is very safe)
     scheduler.add_job(
         refresh_long_lived_token,
-        trigger=CronTrigger(day="1,15", hour=2, minute=0),
+        trigger=CronTrigger(day="1,30", hour=2, minute=0),
         id="refresh_threads_token",
         name="Refresh Threads Access Token",
         replace_existing=True
