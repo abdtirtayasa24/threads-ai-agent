@@ -1,0 +1,4 @@
+.env
+venv/
+threads_agent.db
+__pycache__
