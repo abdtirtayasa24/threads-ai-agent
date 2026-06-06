@@ -49,19 +49,12 @@ _(Note: Use ngrok for local testing)._
 
 ## Running Jobs Manually
 
-You can run the jobs via CLI:
+You can run the jobs via Telegram commands:
 
-```bash
-python -m app.jobs.generate_ideas
-python -m app.jobs.generate_daily_drafts
-python -m app.jobs.publish_approved_posts
-```
-
-Or via API:
-
-- `POST /api/jobs/ideate`
-- `POST /api/jobs/generate`
-- `POST /api/jobs/publish`
+- `/ideate`: Generate new post ideas
+- `/generate`: Write drafts for pending ideas
+- `/publish`: Publish approved drafts to Threads
+- `/schedule`: View or change job schedules
 
 ## Safety Policy
 

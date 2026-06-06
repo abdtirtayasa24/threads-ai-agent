@@ -5,14 +5,19 @@ from app.models import ThreadPostIdea, ThreadPostDraft, ThreadPostLog
 from app.services.ai_generator import generate_draft
 from app.services.safety_checker import check_safety
 from app.services.style_checker import check_style
-from app.services.telegram_approval import send_draft_for_approval
+from app.services.telegram_approval import send_draft_for_approval, send_telegram_message
 
-async def run_generation():
+async def run_generation(chat_id: str = None):
     db: Session = SessionLocal()
     try:
         # Get pending ideas
         ideas = db.query(ThreadPostIdea).filter(ThreadPostIdea.status == "pending").limit(3).all()
         
+        if not ideas:
+            print("No pending ideas found in the database.")
+            await send_telegram_message("ℹ️ *Generation Job Done:*\nNo pending ideas found to draft. Run `/ideate` first!", chat_id)
+            return
+
         for idea in ideas:
             print(f"Generating draft for idea: {idea.topic}")
             content = generate_draft(idea.topic, idea.angle)
@@ -39,7 +44,9 @@ async def run_generation():
             # Send to Telegram
             await send_draft_for_approval(draft.id, content, safety["score"], style["score"])
             print(f"Draft {draft.id} sent for approval.")
-            
+
+    except Exception as e:
+        await send_telegram_message(f"❌ *Generation Job Failed!*\nError: `{str(e)}`", chat_id)
     finally:
         db.close()
 

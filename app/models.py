@@ -36,3 +36,8 @@ class ThreadPostLog(Base):
     action = Column(String, nullable=False)
     detail = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AppConfig(Base):
+    __tablename__ = "app_configs"
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=False)
