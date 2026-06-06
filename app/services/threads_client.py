@@ -28,7 +28,7 @@ async def create_and_publish_container(text: str, reply_to_id: str = None) -> st
             "creation_id": container_id,
             "access_token": settings.THREADS_ACCESS_TOKEN
         }
-        await asyncio.sleep(2) 
+        await asyncio.sleep(2)
         
         publish_res = await client.post(publish_url, data=publish_payload)
         if publish_res.status_code != 200:
@@ -45,16 +45,30 @@ async def publish_to_threads(text: str) -> str:
     if len(text.encode('utf-8')) <= 500:
         return await create_and_publish_container(text)
 
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    words = text.split(' ')
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    max_chars = 500
+
+    for word in words:
+        word_len = len(word)
+        space_cost = 1 if current_chunk else 0
+
+        if current_length + word_len + space_cost > max_chars:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_length = word_len
+        else:
+            current_chunk.append(word)
+            current_length += word_len + space_cost
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
     
     parent_id = None
-    for i, paragraph in enumerate(paragraphs):
-        thread_prefix = f"({i+1}/{len(paragraphs)}) "
-        chunk = thread_prefix + paragraph
-        
-        if len(chunk.encode('utf-8')) > 500:
-            chunk = chunk.encode('utf-8')[:490].decode('utf-8', errors='ignore') + "..."
-            
+    for i, chunk in enumerate(chunks):            
         if i == 0:
             parent_id = await create_and_publish_container(chunk)
         else:
