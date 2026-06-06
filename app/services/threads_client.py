@@ -28,7 +28,7 @@ async def create_and_publish_container(text: str, reply_to_id: str = None) -> st
             "creation_id": container_id,
             "access_token": settings.THREADS_ACCESS_TOKEN
         }
-        await asyncio.sleep(2)
+        await asyncio.sleep(5)
         
         publish_res = await client.post(publish_url, data=publish_payload)
         if publish_res.status_code != 200:
@@ -68,7 +68,12 @@ async def publish_to_threads(text: str) -> str:
         chunks.append(" ".join(current_chunk))
     
     parent_id = None
-    for i, chunk in enumerate(chunks):            
+    for i, chunk in enumerate(chunks):
+        if i > 0:
+            print(f"⌛ Sleeping 10 seconds to respect Meta's rate limits before starting chunk {i+1}/{len(chunks)}...")
+            await asyncio.sleep(10)
+
+        print(f"📝 Publishing chunk {i+1}/{len(chunks)}...")
         if i == 0:
             parent_id = await create_and_publish_container(chunk)
         else:
