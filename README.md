@@ -3,7 +3,7 @@
 An AI-powered automation system that generates, validates, and publishes Threads/X-style posts in the persona of Abdul Fatah Tirtayasa.
 
 ## Features
-- **Persona-Driven Generation**: Uses OpenAI API to write posts based on a specific technical builder persona.
+- **Persona-Driven Generation**: Uses AI API to write posts based on a specific technical builder persona.
 - **Dual-Layer Validation**: LLM-based Safety Checker and Style Checker.
 - **Human-in-the-Loop**: Telegram integration with inline buttons for Approve/Reject/Regenerate.
 - **Official Threads API**: Uses the official Meta Graph API for Threads (Container -> Publish pattern).
@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 Copy `.env.example` to `.env` and fill in your credentials.
 
-- `OPENAI_API_KEY`: Your OpenAI key.
+- `AI_API_KEY`: Your AI provider API key.
 - `TELEGRAM_BOT_TOKEN`: Get from BotFather.
 - `THREADS_ACCESS_TOKEN`: Get from Meta App Dashboard.
 

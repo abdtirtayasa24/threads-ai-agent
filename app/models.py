@@ -1,10 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+import uuid
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Uuid
 from sqlalchemy.sql import func
 from app.db import Base
 
 class ThreadPostIdea(Base):
     __tablename__ = "thread_post_ideas"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     topic = Column(Text, nullable=False)
     angle = Column(Text)
     source_note = Column(Text)
@@ -13,8 +14,8 @@ class ThreadPostIdea(Base):
 
 class ThreadPostDraft(Base):
     __tablename__ = "thread_post_drafts"
-    id = Column(Integer, primary_key=True, index=True)
-    idea_id = Column(Integer, ForeignKey("thread_post_ideas.id"))
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    idea_id = Column(Uuid(as_uuid=True), ForeignKey("thread_post_ideas.id"))
     content = Column(Text, nullable=False)
     content_type = Column(String, default="single_post")
     status = Column(String, default="draft") # draft, approved, rejected, published, failed
@@ -30,8 +31,8 @@ class ThreadPostDraft(Base):
 
 class ThreadPostLog(Base):
     __tablename__ = "thread_post_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    draft_id = Column(Integer, ForeignKey("thread_post_drafts.id"))
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    draft_id = Column(Uuid(as_uuid=True), ForeignKey("thread_post_drafts.id"))
     action = Column(String, nullable=False)
     detail = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
