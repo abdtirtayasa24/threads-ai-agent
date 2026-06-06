@@ -1,3 +1,4 @@
+import re
 import httpx
 import asyncio
 from app.config import settings
@@ -44,37 +45,70 @@ async def create_and_publish_container(text: str, reply_to_id: str | None = None
         return post_id
     
 def split_text_for_threads(text: str, max_chars: int = 480) -> list[str]:
-    """Split text into safe Threads chunks under max_chars."""
-    words = text.split()
+    """
+    Paragraph-aware splitter for Threads.
+
+    - Preserves paragraph breaks.
+    - Does not cut words.
+    - Splits long paragraphs safely by words.
+    """
+    def split_long_text_preserve_words(value: str) -> list[str]:
+        tokens = re.findall(r"\S+\s*", value)
+        parts: list[str] = []
+        current = ""
+
+        for token in tokens:
+            candidate = current + token
+
+            if len(candidate.rstrip()) <= max_chars:
+                current = candidate
+            else:
+                if current.strip():
+                    parts.append(current.rstrip())
+                current = token
+
+        if current.strip():
+            parts.append(current.rstrip())
+
+        return parts
+
+    blocks = re.split(r"(\n+)", text.strip())
     chunks: list[str] = []
-    current_words: list[str] = []
-    current_length = 0
+    current = ""
 
-    for word in words:
-        word_length = len(word)
-        
-        if word_length > max_chars:
-            if current_words:
-                chunks.append(" ".join(current_words))
-                current_words = []
-                current_length = 0
-
-            chunks.append(word)
+    for block in blocks:
+        if not block:
             continue
 
-        space_cost = 1 if current_words else 0
-        candidate_length = current_length + space_cost + word_length
+        if re.fullmatch(r"\n+", block):
+            candidate = current + block
 
-        if candidate_length <= max_chars:
-            current_words.append(word)
-            current_length = candidate_length
-        else:
-            chunks.append(" ".join(current_words))
-            current_words = [word]
-            current_length = word_length
+            if len(candidate) <= max_chars:
+                current = candidate
+            else:
+                if current.strip():
+                    chunks.append(current.rstrip())
+                current = ""
+            continue
 
-    if current_words:
-        chunks.append(" ".join(current_words))
+        block_parts = (
+            split_long_text_preserve_words(block)
+            if len(block) > max_chars
+            else [block]
+        )
+
+        for part in block_parts:
+            candidate = part if not current else current + part
+
+            if len(candidate) <= max_chars:
+                current = candidate
+            else:
+                if current.strip():
+                    chunks.append(current.rstrip())
+                current = part
+
+    if current.strip():
+        chunks.append(current.rstrip())
 
     return chunks
 
