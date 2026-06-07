@@ -5,6 +5,7 @@ class Settings(BaseSettings):
 
     AI_API_KEY: str
     AI_MODEL: str = "gemini-3.1-flash-lite"
+    IMAGE_MODEL: str = "gemini-2.5-flash-image"
 
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str
@@ -14,6 +15,8 @@ class Settings(BaseSettings):
     THREADS_ACCESS_TOKEN: str
 
     AUTO_PUBLISH: bool = False
+    GENERATE_ILLUSTRATIONS: bool = True
+    BASE_URL: str = "http://localhost:8000"
 
     class Config:
         env_file = ".env"

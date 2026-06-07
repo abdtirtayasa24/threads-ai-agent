@@ -1,10 +1,12 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from app.db import engine, Base
 from app.routes import approval, drafts, auth_threads
 from app.services.scheduler import setup_scheduler, shutdown_scheduler
 
-# Create tables
+os.makedirs("static/images", exist_ok=True)
 Base.metadata.create_all(bind=engine)
 
 @asynccontextmanager
@@ -18,6 +20,7 @@ app = FastAPI(title="Threads AI Agent API", version="0.1.0", lifespan=lifespan)
 app.include_router(approval.router)
 app.include_router(drafts.router)
 app.include_router(auth_threads.router)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 def read_root():
