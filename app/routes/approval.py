@@ -94,7 +94,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
                 publish_h = get_config("schedule_publish_hour", "10,16")
 
                 status_msg = (
-                    f"⏰ *Active Schedules (UTC):*\n\n"
+                    f"⏰ *Active Schedules (UTC+8):*\n\n"
                     f"• *Ideation (/ideate):* Daily at `{ideate_h}:00`\n"
                     f"• *Drafting (/generate):* Daily at `{generate_h}:00`\n"
                     f"• *Publishing (/publish):* Daily at `{publish_h}:00`\n\n"
@@ -133,7 +133,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
                 
                 try:
                     update_job_schedule(job_id, hour_str)
-                    await send_telegram_message(f"✅ *Schedule Updated!*\n`{job_name}` is now scheduled daily at `{hour_str}:00` UTC.", chat_id)
+                    await send_telegram_message(f"✅ *Schedule Updated!*\n`{job_name}` is now scheduled daily at `{hour_str}:00` UTC+8.", chat_id)
                 except Exception as e:
                     await send_telegram_message(f"❌ *Failed to update schedule:* `{str(e)}`", chat_id)
 
