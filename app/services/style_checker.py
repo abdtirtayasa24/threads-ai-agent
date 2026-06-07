@@ -1,7 +1,6 @@
-import json
 from openai import OpenAI
 from app.config import settings
-from app.services.ai_generator import load_prompt
+from app.services.ai_generator import extract_and_parse_json, load_prompt
 
 client = OpenAI(
     api_key=settings.AI_API_KEY,
@@ -20,4 +19,4 @@ def check_style(draft_content: str) -> dict:
         ],
         temperature=0.0
     )
-    return json.loads(response.choices[0].message.content)
+    return extract_and_parse_json(response.choices[0].message.content)
