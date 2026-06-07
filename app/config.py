@@ -5,7 +5,9 @@ class Settings(BaseSettings):
 
     AI_API_KEY: str
     AI_MODEL: str = "gemini-3.1-flash-lite"
-    IMAGE_MODEL: str = "gemini-2.5-flash-image"
+
+    OPENROUTER_API_KEY: str
+    IMAGE_MODEL: str = "x-ai/grok-imagine-image-quality"
 
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str

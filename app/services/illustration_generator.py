@@ -21,6 +21,14 @@ def safe_filename(value: str) -> str:
     value = re.sub(r"[^a-zA-Z0-9_-]", "_", value)
     return value[:80]
 
+def decode_image_data_url(data_url: str) -> bytes:
+    match = re.match(r"^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$", data_url)
+
+    if not match:
+        raise RuntimeError(f"Unexpected OpenRouter image URL format: {data_url[:80]}")
+
+    return base64.b64decode(match.group(1))
+
 async def generate_image_prompt(content: str) -> str:
     system_prompt = load_prompt("illustration_style.md")
 
@@ -57,59 +65,48 @@ async def generate_and_watermark_image(draft_id: str, content: str) -> str | Non
         print(f"🎨 Generating illustration for draft {draft_id}...")
         print(f"🧠 Image prompt: {image_prompt}")
 
-        nano_banana_url = (
-            "https://generativelanguage.googleapis.com/v1beta/"
-            f"models/{settings.IMAGE_MODEL}:generateContent"
-            f"?key={settings.AI_API_KEY}"
-        )
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "X-OpenRouter-Title": "Threads AI Agent",
+        }
 
-        nano_banana_payload = {
-            "contents": [
+        payload = {
+            "model": settings.IMAGE_MODEL,
+            "messages": [
                 {
                     "role": "user",
-                    "parts": [
-                        {
-                            "text": image_prompt
-                        }
-                    ]
+                    "content": image_prompt
                 }
             ],
-            "generationConfig": {
-                "responseModalities": ["IMAGE", "TEXT"],
-                "temperature": 0.75,
-                "imageConfig": {
-                    "aspectRatio": "4:3"
-                }
+            "modalities": ["image", "text"],
+            "temperature": 0.75,
+            "stream": False,
+            "image_config": {
+                "aspect_ratio": "4:3",
+                "image_size": "1K"
             }
         }
 
         async with httpx.AsyncClient(timeout=90.0) as http_client:
-            img_response = await http_client.post(nano_banana_url, json=nano_banana_payload)
+            response = await http_client.post(url, headers=headers, json=payload)
 
-            if img_response.status_code != 200:
-                print(f"❌ Image API Error: {img_response.text}")
-                return None
+        if response.status_code != 200:
+            print("❌ OpenRouter Image API Error:")
+            print(response.text)
+            return None
+
+        data = response.json()
+
+        message = data["choices"][0]["message"]
+        images = message.get("images") or []
+
+        if not images:
+            raise RuntimeError(f"No images returned from OpenRouter: {data}")
             
-            data = img_response.json()
-
-        b64_image = None
-
-        for candidate in data.get("candidates", []):
-            content = candidate.get("content", {})
-            for part in content.get("parts", []):
-                inline_data = part.get("inlineData") or part.get("inline_data")
-
-                if inline_data and inline_data.get("data"):
-                    b64_image = inline_data["data"]
-                    break
-
-            if b64_image:
-                break
-
-        if not b64_image:
-            raise RuntimeError(f"No image data returned from Gemini: {data}")
-        
-        image_bytes = base64.b64decode(b64_image)
+        image_data_url = images[0]["image_url"]["url"]
+        image_bytes = decode_image_data_url(image_data_url)
 
         img = Image.open(BytesIO(image_bytes)).convert("RGBA")
 
