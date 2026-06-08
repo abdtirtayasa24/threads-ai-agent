@@ -2,3 +2,4 @@
 venv/
 threads_agent.db
 __pycache__
+static/

@@ -7,18 +7,18 @@ class Settings(BaseSettings):
     AI_MODEL: str = "gemini-3.1-flash-lite"
 
     OPENROUTER_API_KEY: str
-    IMAGE_MODEL: str = "x-ai/grok-imagine-image-quality"
+    IMAGE_MODEL: str = "google/gemini-3.1-flash-image-preview"
 
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str
-    WEBHOOK_URL: str = ""
+    WEBHOOK_URL: str
 
     THREADS_USER_ID: str
     THREADS_ACCESS_TOKEN: str
 
     AUTO_PUBLISH: bool = False
     GENERATE_ILLUSTRATIONS: bool = True
-    BASE_URL: str = "http://localhost:8000"
+    BASE_URL: str
 
     class Config:
         env_file = ".env"

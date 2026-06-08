@@ -80,7 +80,7 @@ async def generate_and_watermark_image(draft_id: str, content: str) -> str | Non
                     "content": image_prompt
                 }
             ],
-            "modalities": ["image", "text"],
+            "modalities": ["image"],
             "temperature": 0.75,
             "stream": False,
             "image_config": {

@@ -26,6 +26,6 @@ Requirements:
 - Make it suitable for a professional LinkedIn post.
 - Style: Minimalist anime-style illustration, corporate tech aesthetic.
 - Color Palette: Navy blue, light grey, and subtle teal accents.
-- Character: A young southeast asian male tech worker wearing a simple dark grey hoodie.
+- Character: A young southeast asian male with mustache tech worker wearing a simple dark black hoodie.
 - Background must be represent the post content situation.
 - Output only the final image-generation prompt.
