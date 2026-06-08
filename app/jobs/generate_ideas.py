@@ -5,11 +5,32 @@ from app.models import ThreadPostIdea
 from app.services.ai_generator import generate_ideas
 from app.services.telegram_approval import send_telegram_message
 
+IDEAS_PER_RUN = 2
+
+
+def normalize_idea_text(value: str | None) -> str:
+    return " ".join((value or "").lower().split())
+
+
+def idea_key(topic: str | None, angle: str | None) -> tuple[str, str]:
+    return normalize_idea_text(topic), normalize_idea_text(angle)
+
+
 async def run_ideation(chat_id: str = None):
     db: Session = SessionLocal()
     try:
         print("Generating new post ideas...")
-        result = generate_ideas(count=3)
+        existing_ideas = db.query(ThreadPostIdea).order_by(ThreadPostIdea.created_at.asc()).all()
+        previous_ideas = [
+            {"topic": idea.topic, "angle": idea.angle or ""}
+            for idea in existing_ideas
+        ]
+        existing_idea_keys = {
+            idea_key(idea.topic, idea.angle)
+            for idea in existing_ideas
+        }
+
+        result = generate_ideas(count=IDEAS_PER_RUN, previous_ideas=previous_ideas)
         ideas_data = result.get("ideas", [])
         
         if not ideas_data:
@@ -18,9 +39,19 @@ async def run_ideation(chat_id: str = None):
             return
             
         ideas_summary = []
+        skipped_duplicates = 0
         for item in ideas_data:
             topic = item.get("topic")
             angle = item.get("angle")
+            if not topic:
+                continue
+
+            key = idea_key(topic, angle)
+            if key in existing_idea_keys:
+                skipped_duplicates += 1
+                print(f"Skipped duplicate idea: {topic}")
+                continue
+
             idea = ThreadPostIdea(
                 topic=topic,
                 angle=angle,
@@ -28,20 +59,30 @@ async def run_ideation(chat_id: str = None):
                 status="pending"
             )
             db.add(idea)
+            existing_idea_keys.add(key)
             print(f"Added idea: {topic}")
             ideas_summary.append(f"💡 *{topic}*\n_Angle:_ {angle}")
             
         db.commit()
 
+        if not ideas_summary:
+            await send_telegram_message(
+                "⚠️ *Ideation Job Done*, but every generated idea was already in the database. Please run `/ideate` again.",
+                chat_id
+            )
+            return
+
         summary_text = "\n\n".join(ideas_summary)
+        duplicate_note = f"\n\nSkipped {skipped_duplicates} duplicate idea(s)." if skipped_duplicates else ""
         report_msg = (
             f"✅ *Ideation Job Done!*\n\n"
-            f"Brainstormed and saved {len(ideas_data)} new topics:\n\n"
-            f"{summary_text}\n\n"
+            f"Brainstormed and saved {len(ideas_summary)} new topics:\n\n"
+            f"{summary_text}"
+            f"{duplicate_note}\n\n"
             f"👉 Use `/generate` to write drafts for these!"
         )
         await send_telegram_message(report_msg, chat_id)
-        print(f"Successfully added {len(ideas_data)} new ideas to the database.")
+        print(f"Successfully added {len(ideas_summary)} new ideas to the database.")
 
     except Exception as e:
         error_msg = f"❌ *Ideation Job Failed!*\nError: `{str(e)}`"

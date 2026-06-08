@@ -5,12 +5,12 @@ from datetime import datetime
 import httpx
 
 from app.db import get_db
-from app.models import ThreadPostDraft, ThreadPostLog
+from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostIdea
 from app.services.telegram_approval import send_telegram_message
 from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
-from app.jobs.generate_ideas import run_ideation
+from app.jobs.generate_ideas import run_ideation, idea_key
 from app.jobs.generate_daily_drafts import run_generation
 from app.jobs.publish_approved_posts import run_publisher
 
@@ -76,6 +76,43 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         if text.startswith("/ideate"):
             background_tasks.add_task(run_ideation, chat_id)
             await send_telegram_message("💡 *Ideation job started.* I am brainstorming new topics...", chat_id)
+
+        elif text.startswith("/addidea"):
+            idea_text = text[len("/addidea"):].strip()
+            if "|" not in idea_text:
+                await send_telegram_message(
+                    "❌ *Invalid syntax.* Use:\n`/addidea <topic> | <angle>`\n\nExample:\n`/addidea AI agents for sales ops | Why agents fail when the CRM workflow is unclear`",
+                    chat_id
+                )
+                return
+
+            topic, angle = [part.strip() for part in idea_text.split("|", 1)]
+            if not topic or not angle:
+                await send_telegram_message(
+                    "❌ *Invalid syntax.* Topic and angle are required. Use:\n`/addidea <topic> | <angle>`",
+                    chat_id
+                )
+                return
+
+            new_idea_key = idea_key(topic, angle)
+            existing_ideas = db.query(ThreadPostIdea).all()
+            if any(idea_key(idea.topic, idea.angle) == new_idea_key for idea in existing_ideas):
+                await send_telegram_message("⚠️ *Idea not added.* The same topic and angle already exists in the database.", chat_id)
+                return
+
+            idea = ThreadPostIdea(
+                topic=topic,
+                angle=angle,
+                source_note="Generate by Human User",
+                status="pending"
+            )
+            db.add(idea)
+            db.commit()
+
+            await send_telegram_message(
+                f"✅ *Idea added to database!*\n\n💡 *{topic}*\n_Angle:_ {angle}\n\n👉 Use `/generate` to write a draft for this idea.",
+                chat_id
+            )
 
         elif text.startswith("/generate"):
             background_tasks.add_task(run_generation, chat_id)

@@ -50,12 +50,26 @@ def generate_draft(topic: str, angle: str) -> str:
     )
     return response.choices[0].message.content.strip()
 
-def generate_ideas(count: int = 3) -> dict:
+def generate_ideas(count: int = 2, previous_ideas: list[dict[str, str]] | None = None) -> dict:
     """Generates new post ideas based on the persona system prompt."""
     system_prompt = load_prompt("writer_system.md")
+    previous_ideas = previous_ideas or []
+    previous_ideas_text = "\n".join(
+        f"- Topic: {idea.get('topic', '')}\n  Angle: {idea.get('angle', '')}"
+        for idea in previous_ideas
+    )
+    if not previous_ideas_text:
+        previous_ideas_text = "No previous ideas yet."
+
     user_prompt = f"""Based on your persona, generate {count} new Thread/X post ideas.
 Focus on AI, automation, data analytics, CLI agents, or practical business workflows.
 Do not repeat generic ideas. Make them specific, grounded, and based on real operational problems.
+
+Previously generated ideas that must NOT be repeated or reworded:
+{previous_ideas_text}
+
+Generate only ideas that are meaningfully different from every previous topic and angle above.
+If an idea is merely a variation of a previous one, discard it and create a more distinct idea.
 
 Output strictly in this JSON format:
 {{
