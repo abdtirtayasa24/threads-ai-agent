@@ -78,6 +78,17 @@ Render this exact headline as large, dominant, readable text:
 Render this exact supporting text as clearly readable secondary text, not tiny:
 {caption_text}
 
+Consistent character requirement:
+Use the same recurring main character in this slide:
+- young Southeast Asian male tech worker
+- medium tan skin
+- neat black mustache
+- simple dark black hoodie
+- calm focused builder/developer appearance
+- minimalist anime-style facial features
+- no glasses unless explicitly requested
+- no beard other than the mustache
+
 Visual direction:
 {visual_prompt}
 
