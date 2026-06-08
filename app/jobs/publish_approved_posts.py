@@ -2,10 +2,9 @@ import asyncio
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
-from app.models import ThreadPostDraft, ThreadPostLog
+from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostImage
 from app.services.threads_client import publish_to_threads
 from app.services.telegram_approval import send_telegram_message
-from app.services.illustration_generator import generate_and_watermark_image
 from app.config import settings
 
 async def run_publisher(chat_id: str = None):
@@ -36,14 +35,15 @@ async def run_publisher(chat_id: str = None):
             await send_telegram_message("ℹ️ *Publish Job Done:*\nNo approved or eligible drafts found ready to be published.", chat_id)
             return
         
-        image_public_url = None
-        if settings.GENERATE_ILLUSTRATIONS:
-            await send_telegram_message("🎨 Generating custom illustration for the post...", chat_id)
-            image_public_url = await generate_and_watermark_image(str(draft.id), draft.content)
+        images = db.query(ThreadPostImage)\
+            .filter(ThreadPostImage.draft_id == draft.id)\
+            .order_by(ThreadPostImage.position.asc())\
+            .all()
+        image_urls = [image.image_url for image in images]
         
         print(f"Publishing draft {draft.id} to Threads...")
         try:
-            post_id = await publish_to_threads(draft.content, image_url=image_public_url)
+            post_id = await publish_to_threads(draft.content, image_urls=image_urls)
             draft.status = "published"
             draft.published_at = datetime.utcnow()
             draft.threads_post_id = post_id
@@ -56,7 +56,7 @@ async def run_publisher(chat_id: str = None):
                 f"🚀 *Published 1 Post to Threads!*\n\n"
                 f"📝 *Content:*\n"
                 f"_{draft.content}_\n\n"
-                f"🖼️ *Illustration:* {f'✅ {image_public_url}' if image_public_url else '❌ None'}\n"
+                f"🖼️ *Illustrations:* {f'✅ {len(image_urls)} image(s)' if image_urls else '❌ None'}\n"
                 f"🔗 *Threads Post ID:* `{post_id}`"
             )
             await send_telegram_message(report_msg, chat_id)

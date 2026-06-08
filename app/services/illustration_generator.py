@@ -6,6 +6,7 @@ from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 from openai import AsyncOpenAI
 from app.config import settings
+from app.services.ai_generator import extract_and_parse_json
 
 client = AsyncOpenAI(
     api_key=settings.AI_API_KEY,
@@ -29,18 +30,19 @@ def decode_image_data_url(data_url: str) -> bytes:
 
     return base64.b64decode(match.group(1))
 
-async def generate_image_prompt(content: str) -> str:
+async def generate_carousel_plan(content: str) -> dict:
     system_prompt = load_prompt("illustration_style.md")
 
     prompt_res = await client.chat.completions.create(
         model=settings.AI_MODEL,
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (
-                    "Create an image-generation prompt that visually represents "
-                    "the core idea of this post:\n\n"
+                    "Create a self-contained visual carousel plan for this post. "
+                    "Return only the required JSON format.\n\n"
                     f"{content}"
                 )
             }
@@ -48,20 +50,46 @@ async def generate_image_prompt(content: str) -> str:
         temperature=0.5
     )
 
-    image_prompt = prompt_res.choices[0].message.content
-    if not image_prompt:
-        raise RuntimeError("AI did not return an image prompt.")
-    
-    return image_prompt.strip()
-    
-async def generate_and_watermark_image(draft_id: str, content: str) -> str | None:
-    """
-    Generate an illustration based on post content, apply watermark,
-    save it locally, and return the public image URL.
-    """
-    try:
-        image_prompt = await generate_image_prompt(content)
+    raw_output = prompt_res.choices[0].message.content
+    if not raw_output:
+        raise RuntimeError("AI did not return a carousel plan.")
 
+    plan = extract_and_parse_json(raw_output)
+    slides = plan.get("slides") or []
+    if not isinstance(slides, list) or not slides:
+        raise RuntimeError(f"AI did not return carousel slides: {plan}")
+
+    return {"slides": slides[:6]}
+
+def flatten_carousel_slide_prompt(slide: dict) -> str:
+    slide_number = slide.get("slide", "")
+    role = slide.get("role", "")
+    headline = slide.get("headline", "")
+    caption_text = slide.get("caption_text", "")
+    visual_prompt = slide.get("prompt", "")
+
+    return f"""Create one professional LinkedIn/Threads carousel image for slide {slide_number}.
+
+Slide role: {role}.
+
+Render this exact headline as large, dominant, readable text:
+{headline}
+
+Render this exact supporting text as clearly readable secondary text, not tiny:
+{caption_text}
+
+Visual direction:
+{visual_prompt}
+
+Text layout requirements:
+- Headline must be the main readable text.
+- Supporting text must be large enough to read on mobile.
+- Do not add extra words, labels, logos, hashtags, or watermarks.
+- Do not generate multiple slides.
+- Generate only this single carousel image."""
+
+async def generate_image_from_prompt(draft_id: str, image_prompt: str, position: int | None = None) -> str | None:
+    try:
         print(f"🎨 Generating illustration for draft {draft_id}...")
         print(f"🧠 Image prompt: {image_prompt}")
 
@@ -136,7 +164,8 @@ async def generate_and_watermark_image(draft_id: str, content: str) -> str | Non
 
         watermarked_img = Image.alpha_composite(img, txt_layer).convert("RGB")
 
-        filename = f"{safe_filename(draft_id)}.jpg"
+        suffix = f"-{position}" if position is not None else ""
+        filename = f"{safe_filename(draft_id)}{suffix}.jpg"
         filepath = os.path.join("static", "images", filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
@@ -148,3 +177,29 @@ async def generate_and_watermark_image(draft_id: str, content: str) -> str | Non
     except Exception as e:
         print(f"❌ Failed to generate illustration: {e}")
         return None
+
+async def generate_carousel_images(draft_id: str, content: str) -> list[dict]:
+    try:
+        plan = await generate_carousel_plan(content)
+        generated_images = []
+
+        for index, slide in enumerate(plan["slides"], start=1):
+            position = int(slide.get("slide") or index)
+            flattened_prompt = flatten_carousel_slide_prompt({**slide, "slide": position})
+            image_url = await generate_image_from_prompt(draft_id, flattened_prompt, position)
+
+            if not image_url:
+                continue
+
+            generated_images.append({
+                "image_url": image_url,
+                "position": position,
+                "headline": slide.get("headline"),
+                "caption_text": slide.get("caption_text"),
+                "prompt": flattened_prompt,
+            })
+
+        return generated_images
+    except Exception as e:
+        print(f"❌ Failed to generate carousel illustrations: {e}")
+        return []

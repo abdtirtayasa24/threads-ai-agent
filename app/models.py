@@ -29,6 +29,17 @@ class ThreadPostDraft(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+class ThreadPostImage(Base):
+    __tablename__ = "thread_post_images"
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    draft_id = Column(Uuid(as_uuid=True), ForeignKey("thread_post_drafts.id"), nullable=False, index=True)
+    image_url = Column(Text, nullable=False)
+    position = Column(Integer, nullable=False)
+    headline = Column(Text)
+    caption_text = Column(Text)
+    prompt = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class ThreadPostLog(Base):
     __tablename__ = "thread_post_logs"
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)

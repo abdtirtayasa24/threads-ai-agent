@@ -5,70 +5,119 @@ from app.config import settings
 
 THREADS_API_BASE = "https://graph.threads.net/v1.0"
 
+async def create_threads_container(
+        client: httpx.AsyncClient,
+        text: str | None = None,
+        reply_to_id: str | None = None,
+        image_url: str | None = None,
+        image_urls: list[str] | None = None,
+        is_carousel_item: bool = False,
+    ) -> str:
+    create_url = f"{THREADS_API_BASE}/{settings.THREADS_USER_ID}/threads"
+    create_payload = {
+        "access_token": settings.THREADS_ACCESS_TOKEN
+    }
+
+    if image_urls:
+        create_payload["media_type"] = "CAROUSEL"
+        create_payload["children"] = ",".join(image_urls)
+        if text:
+            create_payload["text"] = text
+    elif image_url:
+        create_payload["media_type"] = "IMAGE"
+        create_payload["image_url"] = image_url
+        if text:
+            create_payload["text"] = text
+        if is_carousel_item:
+            create_payload["is_carousel_item"] = "true"
+    else:
+        create_payload["media_type"] = "TEXT"
+        create_payload["text"] = text or ""
+
+    if reply_to_id:
+        create_payload["reply_to_id"] = reply_to_id
+
+    create_res = await client.post(create_url, data=create_payload)
+    if create_res.status_code != 200:
+        print(f"Threads API Container Error: {create_res.text}")
+        create_res.raise_for_status()
+        
+    container_id = create_res.json().get("id")
+    if not container_id:
+        raise RuntimeError(f"Threads API did not return container id: {create_res.text}")
+
+    return container_id
+
+async def publish_threads_container(client: httpx.AsyncClient, container_id: str) -> str:
+    publish_url = f"{THREADS_API_BASE}/{settings.THREADS_USER_ID}/threads_publish"
+    publish_payload = {
+        "creation_id": container_id,
+        "access_token": settings.THREADS_ACCESS_TOKEN
+    }
+
+    publish_res = None
+    for attempt in range(1, 4):
+        await asyncio.sleep(5 * attempt)
+
+        publish_res = await client.post(publish_url, data=publish_payload)
+        if publish_res.status_code == 200:
+            break
+
+        print(f"Threads API Publish Error attempt {attempt}/3:")
+        print(publish_res.text)
+
+    if publish_res is None or publish_res.status_code != 200:
+        if publish_res is not None:
+            publish_res.raise_for_status()
+        raise RuntimeError("Threads publish failed without response")
+
+    post_id = publish_res.json().get("id")
+    if not post_id:
+        raise RuntimeError(f"Threads API did not return published post id: {publish_res.text}")
+        
+    return post_id
+
 async def create_and_publish_container(
         text: str,
         reply_to_id: str | None = None,
-        image_url: str | None = None
+        image_url: str | None = None,
+        image_urls: list[str] | None = None,
     ) -> str:
     """
     Create a Threads container, publish it, and return the published post ID.
 
+    - If image_urls has multiple items: create a carousel post with text as caption.
     - If image_url is provided: create IMAGE post with text as caption.
-    - If image_url is not provided: create TEXT post.
+    - If no image is provided: create TEXT post.
     - reply_to_id must be the published post ID, not container ID.
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        create_url = f"{THREADS_API_BASE}/{settings.THREADS_USER_ID}/threads"
-        create_payload = {
-            "text": text,
-            "access_token": settings.THREADS_ACCESS_TOKEN
-        }
+        if image_urls and len(image_urls) > 1:
+            child_container_ids = []
+            for url in image_urls:
+                child_container_id = await create_threads_container(
+                    client,
+                    image_url=url,
+                    is_carousel_item=True,
+                )
+                child_container_ids.append(child_container_id)
 
-        if image_url:
-            create_payload["media_type"] = "IMAGE"
-            create_payload["image_url"] = image_url
+            container_id = await create_threads_container(
+                client,
+                text=text,
+                reply_to_id=reply_to_id,
+                image_urls=child_container_ids,
+            )
         else:
-            create_payload["media_type"] = "TEXT"
+            single_image_url = image_url or (image_urls[0] if image_urls else None)
+            container_id = await create_threads_container(
+                client,
+                text=text,
+                reply_to_id=reply_to_id,
+                image_url=single_image_url,
+            )
 
-        if reply_to_id:
-            create_payload["reply_to_id"] = reply_to_id
-
-        create_res = await client.post(create_url, data=create_payload)
-        if create_res.status_code != 200:
-            print(f"Threads API Container Error: {create_res.text}")
-            create_res.raise_for_status()
-            
-        container_id = create_res.json().get("id")
-        if not container_id:
-            raise RuntimeError(f"Threads API did not return container id: {create_res.text}")
-
-        publish_url = f"{THREADS_API_BASE}/{settings.THREADS_USER_ID}/threads_publish"
-        publish_payload = {
-            "creation_id": container_id,
-            "access_token": settings.THREADS_ACCESS_TOKEN
-        }
-
-        publish_res = None
-        for attempt in range(1, 4):
-            await asyncio.sleep(5 * attempt)
-
-            publish_res = await client.post(publish_url, data=publish_payload)
-            if publish_res.status_code != 200:
-                break
-
-            print(f"Threads API Publish Error attempt {attempt}/3:")
-            print(publish_res.text)
-
-        if publish_res is None or publish_res.status_code != 200:
-            if publish_res is not None:
-                publish_res.raise_for_status()
-            raise RuntimeError("Threads publish failed without response")
-
-        post_id = publish_res.json().get("id")
-        if not post_id:
-            raise RuntimeError(f"Threads API did not return published post id: {publish_res.text}")
-            
-        return post_id
+        return await publish_threads_container(client, container_id)
     
 def split_text_for_threads(text: str, max_chars: int = 480) -> list[str]:
     """
@@ -138,13 +187,14 @@ def split_text_for_threads(text: str, max_chars: int = 480) -> list[str]:
 
     return chunks
 
-async def publish_to_threads(text: str, image_url: str | None = None) -> str:
+async def publish_to_threads(text: str, image_url: str | None = None, image_urls: list[str] | None = None) -> str:
     """
     Split long text into chunks and publish as a reply chain.
-    Image is attached only to the first chunk.
+    Images are attached only to the first chunk.
     Returns the last published post ID.
     """
     chunks = split_text_for_threads(text, max_chars=480)
+    image_urls = image_urls or ([] if image_url is None else [image_url])
 
     parent_id = None
     for i, chunk in enumerate(chunks, start=1):
@@ -152,19 +202,19 @@ async def publish_to_threads(text: str, image_url: str | None = None) -> str:
             print(f"⌛ Sleeping 10 seconds before chunk {i}/{len(chunks)}...")
             await asyncio.sleep(10)
 
-        chunk_image_url = image_url if i == 1 else None
+        chunk_image_urls = image_urls if i == 1 else []
 
         print(
             f"📝 Publishing chunk {i}/{len(chunks)} | "
             f"chars={len(chunk)} | "
             f"reply_to_id={parent_id} | "
-            f"has_image={bool(chunk_image_url)}"
+            f"images={len(chunk_image_urls)}"
         )
 
         parent_id = await create_and_publish_container(
             text=chunk,
             reply_to_id=parent_id,
-            image_url=chunk_image_url,
+            image_urls=chunk_image_urls,
         )
 
         print(f"✅ Published chunk {i}/{len(chunks)} | post_id={parent_id}")
