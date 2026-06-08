@@ -5,7 +5,8 @@ from datetime import datetime
 import httpx
 
 from app.db import get_db
-from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostIdea
+from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostIdea, ThreadPostImage
+from app.services.pdf_carousel_generator import generate_linkedin_carousel_pdf
 from app.services.telegram_approval import send_telegram_message
 from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
@@ -84,6 +85,17 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
             draft.carousel_status = "approved"
             draft.carousel_rejection_reason = None
             response_text = "✅ Carousel approved. This post will publish with images."
+
+            try:
+                images = db.query(ThreadPostImage)\
+                    .filter(ThreadPostImage.draft_id == draft.id)\
+                    .order_by(ThreadPostImage.position.asc())\
+                    .all()
+                image_urls = [image.image_url for image in images]
+                pdf_url = generate_linkedin_carousel_pdf(draft.id, image_urls)
+                response_text += f"\n\n📄 LinkedIn carousel PDF ready:\n{pdf_url}"
+            except Exception as e:
+                response_text += f"\n\n⚠️ LinkedIn PDF generation failed: `{str(e)}`"
         elif action == "carouselreject":
             draft.carousel_status = "rejected"
             draft.carousel_rejection_reason = "Rejected via Telegram"
