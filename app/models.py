@@ -18,7 +18,7 @@ class ThreadPostDraft(Base):
     idea_id = Column(Uuid(as_uuid=True), ForeignKey("thread_post_ideas.id"))
     content = Column(Text, nullable=False)
     content_type = Column(String, default="single_post")
-    status = Column(String, default="draft") # draft, approved, rejected, published, failed
+    status = Column(String, default="draft") # draft, approved, rejected, pending_regeneration, regenerated, published, failed
     score_style = Column(Integer)
     score_safety = Column(Integer)
     rejection_reason = Column(Text)

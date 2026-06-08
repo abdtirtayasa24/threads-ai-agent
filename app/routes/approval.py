@@ -11,7 +11,7 @@ from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
 from app.jobs.generate_ideas import run_ideation, idea_key
-from app.jobs.generate_daily_drafts import run_generation
+from app.jobs.generate_daily_drafts import run_generation, regenerate_draft
 from app.jobs.publish_approved_posts import run_publisher
 
 router = APIRouter(prefix="/api/approval", tags=["Approval"])
@@ -49,7 +49,8 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
             response_text = "❌ Draft Rejected."
         elif action == "regenerate":
             draft.status = "pending_regeneration"
-            response_text = "🔄 Draft marked for regeneration."
+            response_text = "🔄 Regeneration started. I’ll send the new draft shortly."
+            background_tasks.add_task(regenerate_draft, draft.id, str(chat_id))
 
         db.add(ThreadPostLog(draft_id=draft.id, action=action, detail="Triggered via Telegram"))
         db.commit()
