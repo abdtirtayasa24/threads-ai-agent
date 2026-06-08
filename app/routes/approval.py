@@ -10,7 +10,7 @@ from app.services.telegram_approval import send_telegram_message
 from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
-from app.jobs.generate_ideas import run_ideation, idea_key
+from app.jobs.generate_ideas import count_approved_unpublished_drafts, run_ideation, idea_key
 from app.jobs.generate_daily_drafts import generate_carousel_for_draft, run_generation, regenerate_draft
 from app.jobs.publish_approved_posts import run_publisher
 
@@ -28,6 +28,33 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
         
+        if callback_data == "ideateforce":
+            background_tasks.add_task(run_ideation, str(chat_id), True)
+            response_text = "💡 Ideation started. I am brainstorming new topics..."
+
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"{callback['message']['text']}\n\n*{response_text}*",
+                    "parse_mode": "Markdown"
+                })
+            return {"status": "ok"}
+
+        if callback_data == "ideatecancel":
+            response_text = "❌ Ideation cancelled."
+
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"{callback['message']['text']}\n\n*{response_text}*",
+                    "parse_mode": "Markdown"
+                })
+            return {"status": "ok"}
+
         action, draft_id_str = callback_data.split("_", 1)
         try:
             draft_uuid = uuid.UUID(draft_id_str)
@@ -92,6 +119,32 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
             return {"status": "ignored", "reason": "Unauthorized chat"}
         
         if text.startswith("/ideate"):
+            approved_drafts_count = count_approved_unpublished_drafts(db)
+            if approved_drafts_count >= 2:
+                warning_text = (
+                    f"⚠️ *Backlog Warning*\n\n"
+                    f"You still have {approved_drafts_count} approved post drafts waiting to be published.\n"
+                    f"Generating more ideas may create too much backlog.\n\n"
+                    f"Do you still want to generate new ideas?"
+                )
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "✅ Keep Generate Ideas", "callback_data": "ideateforce"},
+                            {"text": "❌ Cancel", "callback_data": "ideatecancel"}
+                        ]
+                    ]
+                }
+                url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+                async with httpx.AsyncClient() as client:
+                    await client.post(url, json={
+                        "chat_id": chat_id,
+                        "text": warning_text,
+                        "parse_mode": "Markdown",
+                        "reply_markup": keyboard
+                    })
+                return {"status": "ok"}
+
             background_tasks.add_task(run_ideation, chat_id)
             await send_telegram_message("💡 *Ideation job started.* I am brainstorming new topics...", chat_id)
 

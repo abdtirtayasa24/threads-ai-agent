@@ -1,7 +1,7 @@
 import asyncio
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
-from app.models import ThreadPostIdea
+from app.models import ThreadPostDraft, ThreadPostIdea
 from app.services.ai_generator import generate_ideas
 from app.services.telegram_approval import send_telegram_message
 
@@ -16,9 +16,24 @@ def idea_key(topic: str | None, angle: str | None) -> tuple[str, str]:
     return normalize_idea_text(topic), normalize_idea_text(angle)
 
 
-async def run_ideation(chat_id: str = None):
+def count_approved_unpublished_drafts(db: Session) -> int:
+    return db.query(ThreadPostDraft).filter(ThreadPostDraft.status == "approved").count()
+
+
+async def run_ideation(chat_id: str = None, force: bool = False):
     db: Session = SessionLocal()
     try:
+        approved_drafts_count = count_approved_unpublished_drafts(db)
+        if not force and approved_drafts_count >= 2:
+            msg = (
+                f"⚠️ *Ideation skipped.*\n"
+                f"There are still {approved_drafts_count} approved post drafts waiting to be published."
+            )
+            print(msg)
+            if chat_id:
+                await send_telegram_message(msg, chat_id)
+            return
+
         print("Generating new post ideas...")
         existing_ideas = db.query(ThreadPostIdea).order_by(ThreadPostIdea.created_at.asc()).all()
         previous_ideas = [
