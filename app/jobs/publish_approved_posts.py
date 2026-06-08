@@ -56,7 +56,7 @@ async def run_publisher(chat_id: str = None):
                 f"🚀 *Published 1 Post to Threads!*\n\n"
                 f"📝 *Content:*\n"
                 f"_{draft.content}_\n\n"
-                f"🖼️ *Illustration:* {'Included ✅' if image_public_url else 'None ❌'}\n"
+                f"🖼️ *Illustration:* {f'✅ {image_public_url}' if image_public_url else '❌ None'}\n"
                 f"🔗 *Threads Post ID:* `{post_id}`"
             )
             await send_telegram_message(report_msg, chat_id)
