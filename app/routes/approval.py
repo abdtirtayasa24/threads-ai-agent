@@ -11,7 +11,7 @@ from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
 from app.jobs.generate_ideas import run_ideation, idea_key
-from app.jobs.generate_daily_drafts import run_generation, regenerate_draft
+from app.jobs.generate_daily_drafts import generate_carousel_for_draft, run_generation, regenerate_draft
 from app.jobs.publish_approved_posts import run_publisher
 
 router = APIRouter(prefix="/api/approval", tags=["Approval"])
@@ -28,7 +28,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
         
-        action, draft_id_str = callback_data.split("_")
+        action, draft_id_str = callback_data.split("_", 1)
         try:
             draft_uuid = uuid.UUID(draft_id_str)
         except ValueError:
@@ -43,7 +43,9 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         if action == "approve":
             draft.status = "approved"
             draft.approved_at = datetime.utcnow()
-            response_text = "✅ Draft Approved! It will be published by the scheduler."
+            draft.carousel_status = "generating"
+            response_text = "✅ Draft approved. Generating carousel for review..."
+            background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
         elif action == "reject":
             draft.status = "rejected"
             response_text = "❌ Draft Rejected."
@@ -51,6 +53,21 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
             draft.status = "pending_regeneration"
             response_text = "🔄 Regeneration started. I’ll send the new draft shortly."
             background_tasks.add_task(regenerate_draft, draft.id, str(chat_id))
+        elif action == "carouselapprove":
+            draft.carousel_status = "approved"
+            draft.carousel_rejection_reason = None
+            response_text = "✅ Carousel approved. This post will publish with images."
+        elif action == "carouselreject":
+            draft.carousel_status = "rejected"
+            draft.carousel_rejection_reason = "Rejected via Telegram"
+            response_text = "❌ Carousel rejected. This approved post will publish text-only."
+        elif action == "carouselregen":
+            draft.carousel_status = "generating"
+            draft.carousel_rejection_reason = None
+            response_text = "🔄 Carousel regeneration started. I’ll send the new images shortly."
+            background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
+        else:
+            return {"status": "error", "message": "Invalid callback action"}
 
         db.add(ThreadPostLog(draft_id=draft.id, action=action, detail="Triggered via Telegram"))
         db.commit()

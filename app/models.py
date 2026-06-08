@@ -26,6 +26,8 @@ class ThreadPostDraft(Base):
     approved_at = Column(DateTime(timezone=True))
     published_at = Column(DateTime(timezone=True))
     threads_post_id = Column(String)
+    carousel_status = Column(String, default="none") # none, generating, pending_approval, approved, rejected, failed
+    carousel_rejection_reason = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

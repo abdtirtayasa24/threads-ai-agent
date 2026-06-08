@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostImage
@@ -15,8 +16,14 @@ async def run_publisher(chat_id: str = None):
     db: Session = SessionLocal()
     try:
         # Find approved drafts
-        draft = draft = db.query(ThreadPostDraft)\
-            .filter(ThreadPostDraft.status == "approved")\
+        draft = db.query(ThreadPostDraft)\
+            .filter(
+                ThreadPostDraft.status == "approved",
+                or_(
+                    ThreadPostDraft.carousel_status.is_(None),
+                    ThreadPostDraft.carousel_status.notin_(["generating", "pending_approval"])
+                )
+            )\
             .order_by(ThreadPostDraft.created_at.asc())\
             .first()
         
@@ -35,11 +42,13 @@ async def run_publisher(chat_id: str = None):
             await send_telegram_message("ℹ️ *Publish Job Done:*\nNo approved or eligible drafts found ready to be published.", chat_id)
             return
         
-        images = db.query(ThreadPostImage)\
-            .filter(ThreadPostImage.draft_id == draft.id)\
-            .order_by(ThreadPostImage.position.asc())\
-            .all()
-        image_urls = [image.image_url for image in images]
+        image_urls = []
+        if draft.carousel_status == "approved":
+            images = db.query(ThreadPostImage)\
+                .filter(ThreadPostImage.draft_id == draft.id)\
+                .order_by(ThreadPostImage.position.asc())\
+                .all()
+            image_urls = [image.image_url for image in images]
         
         print(f"Publishing draft {draft.id} to Threads...")
         try:

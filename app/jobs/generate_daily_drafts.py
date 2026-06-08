@@ -7,30 +7,71 @@ from app.services.ai_generator import generate_draft
 from app.services.illustration_generator import generate_carousel_images
 from app.services.safety_checker import check_safety
 from app.services.style_checker import check_style
-from app.services.telegram_approval import send_draft_for_approval, send_telegram_message
+from app.services.telegram_approval import send_carousel_for_approval, send_draft_for_approval, send_telegram_message
 from app.config import settings
 
-async def generate_and_store_draft_images(db: Session, draft: ThreadPostDraft) -> list[str]:
-    if not settings.GENERATE_ILLUSTRATIONS:
-        return []
+async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
+    db: Session = SessionLocal()
+    try:
+        draft = db.query(ThreadPostDraft).filter(ThreadPostDraft.id == draft_id).first()
+        if not draft:
+            await send_telegram_message("❌ *Carousel Generation Failed:* Draft not found.", chat_id)
+            return
 
-    generated_images = await generate_carousel_images(str(draft.id), draft.content)
-    image_urls = []
+        if not settings.GENERATE_ILLUSTRATIONS:
+            draft.carousel_status = "failed"
+            draft.carousel_rejection_reason = "Illustration generation is disabled"
+            db.add(ThreadPostLog(draft_id=draft.id, action="carousel_failed", detail="Illustration generation is disabled"))
+            db.commit()
+            await send_telegram_message("⚠️ *Carousel skipped:* illustration generation is disabled. The approved text can still be published text-only.", chat_id)
+            return
 
-    for item in generated_images:
-        image = ThreadPostImage(
-            draft_id=draft.id,
-            image_url=item["image_url"],
-            position=item["position"],
-            headline=item.get("headline"),
-            caption_text=item.get("caption_text"),
-            prompt=item.get("prompt"),
-        )
-        db.add(image)
-        image_urls.append(item["image_url"])
+        draft.carousel_status = "generating"
+        draft.carousel_rejection_reason = None
+        db.query(ThreadPostImage).filter(ThreadPostImage.draft_id == draft.id).delete()
+        db.commit()
 
-    db.commit()
-    return image_urls
+        generated_images = await generate_carousel_images(str(draft.id), draft.content)
+        image_urls = []
+
+        for item in generated_images:
+            image = ThreadPostImage(
+                draft_id=draft.id,
+                image_url=item["image_url"],
+                position=item["position"],
+                headline=item.get("headline"),
+                caption_text=item.get("caption_text"),
+                prompt=item.get("prompt"),
+            )
+            db.add(image)
+            image_urls.append(item["image_url"])
+
+        if not image_urls:
+            draft.carousel_status = "failed"
+            draft.carousel_rejection_reason = "No carousel images were generated"
+            db.add(ThreadPostLog(draft_id=draft.id, action="carousel_failed", detail="No carousel images were generated"))
+            db.commit()
+            await send_telegram_message("⚠️ *Carousel generation failed.* The approved text can still be published text-only.", chat_id)
+            return
+
+        draft.carousel_status = "pending_approval"
+        db.add(ThreadPostLog(draft_id=draft.id, action="carousel_generated", detail=f"Generated {len(image_urls)} image(s)"))
+        db.commit()
+
+        await send_carousel_for_approval(draft.id, image_urls, chat_id)
+
+    except Exception as e:
+        try:
+            draft = db.query(ThreadPostDraft).filter(ThreadPostDraft.id == draft_id).first()
+            if draft:
+                draft.carousel_status = "failed"
+                draft.carousel_rejection_reason = str(e)
+                db.add(ThreadPostLog(draft_id=draft.id, action="carousel_failed", detail=str(e)))
+                db.commit()
+        finally:
+            await send_telegram_message(f"❌ *Carousel Generation Failed!*\nError: `{str(e)}`\n\nThe approved text can still be published text-only.", chat_id)
+    finally:
+        db.close()
 
 
 async def regenerate_draft(draft_id: uuid.UUID, chat_id: str = None):
@@ -68,13 +109,12 @@ async def regenerate_draft(draft_id: uuid.UUID, chat_id: str = None):
         db.refresh(new_draft)
 
         old_draft.status = "regenerated"
-        image_urls = await generate_and_store_draft_images(db, new_draft)
 
         db.add(ThreadPostLog(draft_id=old_draft.id, action="regenerated", detail=f"New draft: {new_draft.id}"))
         db.add(ThreadPostLog(draft_id=new_draft.id, action="generated", detail=f"Regenerated from draft {old_draft.id}. Safety: {safety['score']}, Style: {style['score']}"))
         db.commit()
 
-        await send_draft_for_approval(new_draft.id, content, safety["score"], style["score"], chat_id, image_urls)
+        await send_draft_for_approval(new_draft.id, content, safety["score"], style["score"], chat_id)
         print(f"Regenerated draft {new_draft.id} sent for approval.")
 
     except Exception as e:
@@ -120,14 +160,12 @@ async def run_generation(chat_id: str = None):
             db.commit()
             db.refresh(draft)
             
-            image_urls = await generate_and_store_draft_images(db, draft)
-
             db.add(ThreadPostLog(draft_id=draft.id, action="generated", detail=f"Safety: {safety['score']}, Style: {style['score']}"))
             idea.status = "drafted"
             db.commit()
             
             # Send to Telegram
-            await send_draft_for_approval(draft.id, content, safety["score"], style["score"], chat_id, image_urls)
+            await send_draft_for_approval(draft.id, content, safety["score"], style["score"], chat_id)
             print(f"Draft {draft.id} sent for approval.")
 
     except Exception as e:
