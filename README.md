@@ -48,32 +48,31 @@ The app uses FastAPI, SQLAlchemy, Telegram webhooks, Gemini/OpenAI-compatible AP
 
 ## Important Files
 
-- `app/main.py` — FastAPI app, routes, scheduler startup, static mount.
-- `app/models.py` — SQLAlchemy models.
-- `app/routes/approval.py` — Telegram webhook, commands, inline callback handling.
-- `app/jobs/generate_ideas.py` — ideation job, duplicate/backlog guard.
-- `app/jobs/generate_daily_drafts.py` — draft generation, draft regeneration, carousel generation.
-- `app/jobs/publish_approved_posts.py` — publishing approved drafts.
-- `app/services/ai_generator.py` — text draft and idea generation using active writer style.
-- `app/services/content_strategy.py` — active writer style/media mode config helpers.
-- `app/services/illustration_generator.py` — carousel/single-image plans, flattened prompts, image generation.
-- `app/services/threads_client.py` — Threads text/image/carousel publishing.
-- `app/services/telegram_approval.py` — Telegram messages and approval UI.
-- `app/services/pdf_carousel_generator.py` — converts carousel images into LinkedIn PDF.
-- `app/prompts/` — writer v1/v2, safety, style, carousel, and single-image prompts.
+| Path | Purpose |
+| --- | --- |
+| `app/main.py` | FastAPI app, routes, scheduler startup, static mount. |
+| `app/models.py` | SQLAlchemy models. |
+| `app/routes/approval.py` | Telegram webhook, commands, inline callback handling. |
+| `app/jobs/generate_ideas.py` | Ideation job, duplicate/backlog guard. |
+| `app/jobs/generate_daily_drafts.py` | Draft generation, draft regeneration, media generation. |
+| `app/jobs/publish_approved_posts.py` | Publishing approved drafts. |
+| `app/services/ai_generator.py` | Text draft and idea generation using active writer style. |
+| `app/services/content_strategy.py` | Active writer style/media mode config helpers. |
+| `app/services/illustration_generator.py` | Carousel/single-image plans, flattened prompts, image generation. |
+| `app/services/threads_client.py` | Threads text/image/carousel publishing. |
+| `app/services/telegram_approval.py` | Telegram messages and approval UI. |
+| `app/services/pdf_carousel_generator.py` | Converts carousel images into LinkedIn PDF. |
+| `app/prompts/` | Writer v1/v2, safety, style, carousel, and single-image prompts. |
 
 ## Database Tables
 
-- `thread_post_ideas`
-  - Stores ideas with `topic`, `angle`, `source_note`, `status`.
-- `thread_post_drafts`
-  - Stores draft content, approval/publish status, scores, Threads ID, and carousel status.
-- `thread_post_images`
-  - Stores generated carousel slide images, slide position, headline, caption text, and flattened prompt.
-- `thread_post_logs`
-  - Stores audit logs for generation, approval, publishing, and carousel actions.
-- `app_configs`
-  - Stores dynamic scheduler hours.
+| Table | Purpose |
+| --- | --- |
+| `thread_post_ideas` | Stores ideas with `topic`, `angle`, `source_note`, `status`. |
+| `thread_post_drafts` | Stores draft content, approval/publish status, scores, Threads ID, and carousel status. |
+| `thread_post_images` | Stores generated carousel/single-image media, position, headline, caption text, and flattened prompt. |
+| `thread_post_logs` | Stores audit logs for generation, approval, publishing, and media actions. |
+| `app_configs` | Stores dynamic scheduler hours and active content strategy settings. |
 
 For existing databases, `create_all()` will not add new columns. Apply schema changes manually when model columns are added.
 
