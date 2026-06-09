@@ -15,6 +15,20 @@ async def send_telegram_message(text: str, chat_id: str = None):
     async with httpx.AsyncClient() as client:
         await client.post(url, json=payload)
 
+async def send_telegram_html(text: str, chat_id: str = None):
+    target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
+    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": target_chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
+
 async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_id: str = None):
     target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
     position = image.get("position")

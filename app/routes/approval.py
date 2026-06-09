@@ -1,3 +1,4 @@
+import html
 import uuid
 from fastapi import APIRouter, Request, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ import httpx
 from app.db import get_db
 from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostIdea, ThreadPostImage
 from app.services.pdf_carousel_generator import generate_linkedin_carousel_pdf
-from app.services.telegram_approval import send_telegram_message
+from app.services.telegram_approval import send_telegram_html, send_telegram_message
 from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
@@ -16,6 +17,112 @@ from app.jobs.generate_daily_drafts import generate_carousel_for_draft, regenera
 from app.jobs.publish_approved_posts import run_publisher
 
 router = APIRouter(prefix="/api/approval", tags=["Approval"])
+
+
+def short_text(value: str | None, max_length: int = 120) -> str:
+    value = " ".join((value or "").split())
+    if len(value) <= max_length:
+        return value
+    return value[:max_length - 1].rstrip() + "…"
+
+
+def short_source_note(value: str | None) -> str:
+    value = (value or "").lower()
+    if "human" in value:
+        return "Human"
+    return "Agent"
+
+
+def format_dt(value) -> str:
+    return value.isoformat(sep=" ", timespec="minutes") if value else "-"
+
+
+async def send_post_report(db: Session, chat_id: str, status: str):
+    timestamp_column = ThreadPostDraft.published_at if status == "published" else ThreadPostDraft.approved_at
+    query = db.query(ThreadPostDraft, ThreadPostIdea)\
+        .join(ThreadPostIdea, ThreadPostDraft.idea_id == ThreadPostIdea.id)\
+        .filter(ThreadPostDraft.status == status)\
+        .order_by(timestamp_column.desc())
+
+    if status == "published":
+        query = query.limit(5)
+
+    rows = query.all()
+    title = "Published posts" if status == "published" else "Approved unpublished posts"
+    if not rows:
+        await send_telegram_html(f"<b>{title}</b>\n\nNo records found.", chat_id)
+        return
+
+    lines = [f"<b>{html.escape(title)}</b>", "<pre>"]
+    for index, (draft, idea) in enumerate(rows, start=1):
+        timestamp = draft.published_at if status == "published" else draft.approved_at
+        lines.extend([
+            f"{index}. topic: {html.escape(short_text(idea.topic, 80))}",
+            f"   content: {html.escape(short_text(draft.content))}",
+            f"   {status}_at: {html.escape(format_dt(timestamp))}",
+            ""
+        ])
+    lines.append("</pre>")
+    await send_telegram_html("\n".join(lines), chat_id)
+
+
+async def send_ideas_report(db: Session, chat_id: str, status: str):
+    rows = db.query(ThreadPostIdea)\
+        .filter(ThreadPostIdea.status == status)\
+        .order_by(ThreadPostIdea.created_at.desc())\
+        .limit(5)\
+        .all()
+
+    title = f"{status.title()} ideas"
+    if not rows:
+        await send_telegram_html(f"<b>{html.escape(title)}</b>\n\nNo records found.", chat_id)
+        return
+
+    lines = [f"<b>{html.escape(title)}</b>", "<pre>"]
+    for index, idea in enumerate(rows, start=1):
+        lines.extend([
+            f"{index}. topic: {html.escape(short_text(idea.topic, 80))}",
+            f"   angle: {html.escape(short_text(idea.angle))}",
+            f"   source: {html.escape(short_source_note(idea.source_note))}",
+            f"   created_at: {html.escape(format_dt(idea.created_at))}",
+            ""
+        ])
+    lines.append("</pre>")
+    await send_telegram_html("\n".join(lines), chat_id)
+
+
+async def send_image_prompt_report(db: Session, chat_id: str, topic: str):
+    if not topic:
+        await send_telegram_html("<b>Invalid syntax.</b> Use: <code>/image-prompt &lt;topic&gt;</code>", chat_id)
+        return
+
+    rows = db.query(ThreadPostImage, ThreadPostDraft, ThreadPostIdea)\
+        .join(ThreadPostDraft, ThreadPostImage.draft_id == ThreadPostDraft.id)\
+        .join(ThreadPostIdea, ThreadPostDraft.idea_id == ThreadPostIdea.id)\
+        .filter(
+            ThreadPostDraft.status == "published",
+            ThreadPostIdea.topic.ilike(f"%{topic}%")
+        )\
+        .order_by(ThreadPostDraft.published_at.desc(), ThreadPostImage.position.asc())\
+        .limit(10)\
+        .all()
+
+    if not rows:
+        await send_telegram_html(f"<b>Image prompts</b>\n\nNo published records found for topic: <code>{html.escape(topic)}</code>", chat_id)
+        return
+
+    lines = [f"<b>Image prompts for: {html.escape(topic)}</b>", "<pre>"]
+    for index, (image, draft, idea) in enumerate(rows, start=1):
+        lines.extend([
+            f"{index}. topic: {html.escape(short_text(idea.topic, 80))}",
+            f"   position: {image.position}",
+            f"   prompt: {html.escape(short_text(image.prompt, 220))}",
+            f"   image_url: {html.escape(image.image_url)}",
+            ""
+        ])
+    lines.append("</pre>")
+    await send_telegram_html("\n".join(lines), chat_id)
+
 
 @router.post("/webhook")
 async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -142,6 +249,10 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
 
         if chat_id != str(settings.TELEGRAM_CHAT_ID):
             return {"status": "ignored", "reason": "Unauthorized chat"}
+
+        message_parts = text.split(maxsplit=1)
+        normalized_command = message_parts[0].lstrip("/").replace("-", "").lower()
+        command_arg = message_parts[1].strip() if len(message_parts) > 1 else ""
         
         if text.startswith("/ideate"):
             approved_drafts_count = count_approved_unpublished_drafts(db)
@@ -209,6 +320,21 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
                 f"✅ *Idea added to database!*\n\n💡 *{topic}*\n_Angle:_ {angle}\n\n👉 Use `/generate` to write a draft for this idea.",
                 chat_id
             )
+
+        elif normalized_command == "postapproved":
+            await send_post_report(db, chat_id, "approved")
+
+        elif normalized_command == "postpublished":
+            await send_post_report(db, chat_id, "published")
+
+        elif normalized_command == "ideaspending":
+            await send_ideas_report(db, chat_id, "pending")
+
+        elif normalized_command == "ideasdrafted":
+            await send_ideas_report(db, chat_id, "drafted")
+
+        elif normalized_command == "imageprompt":
+            await send_image_prompt_report(db, chat_id, command_arg)
 
         elif text.startswith("/generate"):
             background_tasks.add_task(run_generation, chat_id)
