@@ -7,6 +7,16 @@ import httpx
 
 from app.db import get_db
 from app.models import ThreadPostDraft, ThreadPostLog, ThreadPostIdea, ThreadPostImage
+from app.services.content_strategy import (
+    MEDIA_MODE_CAROUSEL,
+    MEDIA_MODE_SINGLE_IMAGE,
+    MEDIA_MODE_TEXT_ONLY,
+    WRITER_STYLE_V1,
+    WRITER_STYLE_V2,
+    describe_content_strategy,
+    get_media_mode,
+    set_content_strategy,
+)
 from app.services.pdf_carousel_generator import generate_linkedin_carousel_pdf
 from app.services.telegram_approval import send_telegram_html, send_telegram_message
 from app.services.scheduler import update_job_schedule, get_config
@@ -136,6 +146,67 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
         
+        if callback_data == "stylev1":
+            set_content_strategy(WRITER_STYLE_V1, MEDIA_MODE_CAROUSEL)
+            response_text = "✅ Style changed to *Style v1* with carousel posts."
+
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"{callback['message']['text']}\n\n*{response_text}*",
+                    "parse_mode": "Markdown"
+                })
+            return {"status": "ok"}
+
+        if callback_data == "stylev2":
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "📝 Text-post", "callback_data": "stylev2text"},
+                        {"text": "🖼️ Image-post", "callback_data": "stylev2image"}
+                    ]
+                ]
+            }
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": "Choose Style v2 media format:",
+                    "reply_markup": keyboard
+                })
+            return {"status": "ok"}
+
+        if callback_data == "stylev2text":
+            set_content_strategy(WRITER_STYLE_V2, MEDIA_MODE_TEXT_ONLY)
+            response_text = "✅ Style changed to *Style v2* with text-only posts."
+
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"Style v2 → Text-post\n\n*{response_text}*",
+                    "parse_mode": "Markdown"
+                })
+            return {"status": "ok"}
+
+        if callback_data == "stylev2image":
+            set_content_strategy(WRITER_STYLE_V2, MEDIA_MODE_SINGLE_IMAGE)
+            response_text = "✅ Style changed to *Style v2* with single-image posts."
+
+            edit_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/editMessageText"
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"Style v2 → Image-post\n\n*{response_text}*",
+                    "parse_mode": "Markdown"
+                })
+            return {"status": "ok"}
+
         if callback_data == "ideateforce":
             background_tasks.add_task(run_ideation, str(chat_id), True)
             response_text = "💡 Ideation started. I am brainstorming new topics..."
@@ -191,9 +262,19 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         if action == "approve":
             draft.status = "approved"
             draft.approved_at = datetime.utcnow()
-            draft.carousel_status = "generating"
-            response_text = "✅ Draft approved. Generating carousel for review..."
-            background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
+            media_mode = get_media_mode()
+            if media_mode == MEDIA_MODE_TEXT_ONLY:
+                draft.carousel_status = "none"
+                draft.carousel_rejection_reason = None
+                response_text = "✅ Draft approved. Text-only mode active, so this post is ready for publishing."
+            elif media_mode == MEDIA_MODE_SINGLE_IMAGE:
+                draft.carousel_status = "generating"
+                response_text = "✅ Draft approved. Generating image for review..."
+                background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
+            else:
+                draft.carousel_status = "generating"
+                response_text = "✅ Draft approved. Generating carousel for review..."
+                background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
         elif action == "reject":
             draft.status = "rejected"
             response_text = "❌ Draft Rejected."
@@ -204,26 +285,29 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         elif action == "carouselapprove":
             draft.carousel_status = "approved"
             draft.carousel_rejection_reason = None
-            response_text = "✅ Carousel approved. This post will publish with images."
+            images = db.query(ThreadPostImage)\
+                .filter(ThreadPostImage.draft_id == draft.id)\
+                .order_by(ThreadPostImage.position.asc())\
+                .all()
+            image_urls = [image.image_url for image in images]
 
-            try:
-                images = db.query(ThreadPostImage)\
-                    .filter(ThreadPostImage.draft_id == draft.id)\
-                    .order_by(ThreadPostImage.position.asc())\
-                    .all()
-                image_urls = [image.image_url for image in images]
-                pdf_url = generate_linkedin_carousel_pdf(draft.id, image_urls)
-                response_text += f"\n\n📄 LinkedIn carousel PDF ready:\n{pdf_url}"
-            except Exception as e:
-                response_text += f"\n\n⚠️ LinkedIn PDF generation failed: `{str(e)}`"
+            if get_media_mode() == MEDIA_MODE_SINGLE_IMAGE or len(image_urls) <= 1:
+                response_text = "✅ Image approved. This post will publish with image."
+            else:
+                response_text = "✅ Carousel approved. This post will publish with images."
+                try:
+                    pdf_url = generate_linkedin_carousel_pdf(draft.id, image_urls)
+                    response_text += f"\n\n📄 LinkedIn carousel PDF ready:\n{pdf_url}"
+                except Exception as e:
+                    response_text += f"\n\n⚠️ LinkedIn PDF generation failed: `{str(e)}`"
         elif action == "carouselreject":
             draft.carousel_status = "rejected"
             draft.carousel_rejection_reason = "Rejected via Telegram"
-            response_text = "❌ Carousel rejected. This approved post will publish text-only."
+            response_text = "❌ Media rejected. This approved post will publish text-only."
         elif action == "carouselregen":
             draft.carousel_status = "generating"
             draft.carousel_rejection_reason = None
-            response_text = "🔄 Carousel regeneration started. I’ll send the new images shortly."
+            response_text = "🔄 Media regeneration started. I’ll send the new result shortly."
             background_tasks.add_task(generate_carousel_for_draft, draft.id, str(chat_id))
         else:
             return {"status": "error", "message": "Invalid callback action"}
@@ -254,6 +338,25 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         normalized_command = message_parts[0].lstrip("/").replace("-", "").lower()
         command_arg = message_parts[1].strip() if len(message_parts) > 1 else ""
         
+        if normalized_command == "changestyle":
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "Style v1", "callback_data": "stylev1"},
+                        {"text": "Style v2", "callback_data": "stylev2"}
+                    ]
+                ]
+            }
+            url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+            async with httpx.AsyncClient() as client:
+                await client.post(url, json={
+                    "chat_id": chat_id,
+                    "text": f"Current strategy: `{describe_content_strategy()}`\n\nChoose content style:",
+                    "parse_mode": "Markdown",
+                    "reply_markup": keyboard
+                })
+            return {"status": "ok"}
+
         if text.startswith("/ideate"):
             approved_drafts_count = count_approved_unpublished_drafts(db)
             if approved_drafts_count >= 2:

@@ -4,6 +4,7 @@ import logging
 import re
 from openai import OpenAI
 from app.config import settings
+from app.services.content_strategy import WRITER_STYLE_V2, get_writer_prompt_filename, get_writer_style
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def extract_and_parse_json(raw_output: str) -> dict:
         raise
 
 def generate_draft(topic: str, angle: str) -> str:
-    system_prompt = load_prompt("writer_system.md")
+    system_prompt = load_prompt(get_writer_prompt_filename())
     user_prompt = f"Write a Threads post about:\nTopic: {topic}\nAngle: {angle}\n\nMake it authentic to your persona."
     
     response = client.chat.completions.create(
@@ -51,8 +52,9 @@ def generate_draft(topic: str, angle: str) -> str:
     return response.choices[0].message.content.strip()
 
 def generate_ideas(count: int = 2, previous_ideas: list[dict[str, str]] | None = None) -> dict:
-    """Generates new post ideas based on the persona system prompt."""
-    system_prompt = load_prompt("writer_system.md")
+    """Generates new post ideas based on the active persona/style prompt."""
+    writer_style = get_writer_style()
+    system_prompt = load_prompt(get_writer_prompt_filename())
     previous_ideas = previous_ideas or []
     previous_ideas_text = "\n".join(
         f"- Topic: {idea.get('topic', '')}\n  Angle: {idea.get('angle', '')}"
@@ -61,9 +63,17 @@ def generate_ideas(count: int = 2, previous_ideas: list[dict[str, str]] | None =
     if not previous_ideas_text:
         previous_ideas_text = "No previous ideas yet."
 
+    if writer_style == WRITER_STYLE_V2:
+        focus_instruction = """Generate broader, conversation-first Threads Indonesia post ideas in Abdul's voice.
+Use Abdul's AI/data/automation/workflow lens, but broaden the topics into work life, early career, learning technical skills, productivity pressure, repetitive work, spreadsheet/dashboard culture, AI anxiety, office communication, and relatable operational friction.
+Make each idea specific, human, reply-friendly, and easy to turn into a conversation seed.
+Do not generate only pure AI/automation tutorial topics."""
+    else:
+        focus_instruction = """Focus on AI, automation, data analytics, CLI agents, or practical business workflows.
+Do not repeat generic ideas. Make them specific, grounded, and based on real operational problems."""
+
     user_prompt = f"""Based on your persona, generate {count} new Thread/X post ideas.
-Focus on AI, automation, data analytics, CLI agents, or practical business workflows.
-Do not repeat generic ideas. Make them specific, grounded, and based on real operational problems.
+{focus_instruction}
 
 Previously generated ideas that must NOT be repeated or reworded:
 {previous_ideas_text}

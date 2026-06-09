@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models import ThreadPostIdea, ThreadPostDraft, ThreadPostLog, ThreadPostImage
 from app.services.ai_generator import generate_draft
-from app.services.illustration_generator import generate_carousel_images, generate_image_from_prompt
+from app.services.content_strategy import MEDIA_MODE_SINGLE_IMAGE, MEDIA_MODE_TEXT_ONLY, get_media_mode
+from app.services.illustration_generator import generate_carousel_images, generate_image_from_prompt, generate_single_image
 from app.services.safety_checker import check_safety
 from app.services.style_checker import check_style
 from app.services.telegram_approval import send_carousel_for_approval, send_carousel_slide_for_review, send_draft_for_approval, send_telegram_message
@@ -16,6 +17,14 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
         draft = db.query(ThreadPostDraft).filter(ThreadPostDraft.id == draft_id).first()
         if not draft:
             await send_telegram_message("❌ *Carousel Generation Failed:* Draft not found.", chat_id)
+            return
+
+        media_mode = get_media_mode()
+        if media_mode == MEDIA_MODE_TEXT_ONLY:
+            draft.carousel_status = "none"
+            draft.carousel_rejection_reason = None
+            db.commit()
+            await send_telegram_message("✅ *Text-only mode active.* This approved draft is ready for publishing without images.", chat_id)
             return
 
         if not settings.GENERATE_ILLUSTRATIONS:
@@ -31,7 +40,11 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
         db.query(ThreadPostImage).filter(ThreadPostImage.draft_id == draft.id).delete()
         db.commit()
 
-        generated_images = await generate_carousel_images(str(draft.id), draft.content)
+        if media_mode == MEDIA_MODE_SINGLE_IMAGE:
+            single_image = await generate_single_image(str(draft.id), draft.content)
+            generated_images = [single_image] if single_image else []
+        else:
+            generated_images = await generate_carousel_images(str(draft.id), draft.content)
         image_items = []
 
         for item in generated_images:
@@ -55,10 +68,10 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
             return
 
         draft.carousel_status = "pending_approval"
-        db.add(ThreadPostLog(draft_id=draft.id, action="carousel_generated", detail=f"Generated {len(image_items)} image(s)"))
+        db.add(ThreadPostLog(draft_id=draft.id, action="carousel_generated", detail=f"Generated {len(image_items)} image(s), media_mode={media_mode}"))
         db.commit()
 
-        await send_carousel_for_approval(draft.id, image_items, chat_id)
+        await send_carousel_for_approval(draft.id, image_items, chat_id, media_mode)
 
     except Exception as e:
         try:
@@ -99,12 +112,14 @@ async def regenerate_carousel_slide(draft_id: uuid.UUID, position: int, chat_id:
         db.add(ThreadPostLog(draft_id=draft_id, action="carousel_slide_regenerated", detail=f"Slide {position}"))
         db.commit()
 
+        image_count = db.query(ThreadPostImage).filter(ThreadPostImage.draft_id == draft_id).count()
+        media_mode = MEDIA_MODE_SINGLE_IMAGE if image_count == 1 else "carousel"
         await send_carousel_slide_for_review(draft_id, {
             "image_url": image.image_url,
             "position": image.position,
             "headline": image.headline,
             "caption_text": image.caption_text,
-        }, chat_id)
+        }, chat_id, media_mode)
         await send_telegram_message(
             f"✅ *Slide {position} regenerated.*\nIf the full carousel looks good, use the carousel approval message to approve it.",
             chat_id

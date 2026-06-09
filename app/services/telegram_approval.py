@@ -29,14 +29,17 @@ async def send_telegram_html(text: str, chat_id: str = None):
     async with httpx.AsyncClient() as client:
         await client.post(url, json=payload)
 
-async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_id: str = None):
+async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_id: str = None, media_mode: str = "carousel"):
     target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
     position = image.get("position")
     headline = image.get("headline") or ""
     caption_text = image.get("caption_text") or ""
+    is_single_image = media_mode == "single_image"
+    title = "Image Post" if is_single_image else f"Carousel Slide {position}"
+    button_text = "🔄 Regenerate Image" if is_single_image else f"🔄 Regenerate Slide {position}"
 
     caption = (
-        f"🖼️ *Carousel Slide {position}*\n"
+        f"🖼️ *{title}*\n"
         f"*Headline:* {headline}\n"
         f"*Caption:* {caption_text}"
     )
@@ -44,7 +47,7 @@ async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": f"🔄 Regenerate Slide {position}", "callback_data": f"slideregen_{draft_id}_{position}"}
+                {"text": button_text, "callback_data": f"slideregen_{draft_id}_{position}"}
             ]
         ]
     }
@@ -59,25 +62,32 @@ async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_
             "reply_markup": keyboard
         })
 
-async def send_carousel_for_approval(draft_id: uuid.UUID, images: list[dict], chat_id: str = None):
+async def send_carousel_for_approval(draft_id: uuid.UUID, images: list[dict], chat_id: str = None, media_mode: str = "carousel"):
     for image in images:
-        await send_carousel_slide_for_review(draft_id, image, chat_id)
+        await send_carousel_slide_for_review(draft_id, image, chat_id, media_mode)
 
     target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
-    text = (
-        f"🖼️ *Carousel Ready for Approval*\n\n"
-        f"Review the generated carousel images for this approved draft.\n"
-        f"You can regenerate individual slides above, regenerate the full carousel, approve, or reject."
+    is_single_image = media_mode == "single_image"
+    title = "Image Ready for Approval" if is_single_image else "Carousel Ready for Approval"
+    description = (
+        "Review the generated image for this approved draft."
+        if is_single_image
+        else "Review the generated carousel images for this approved draft.\nYou can regenerate individual slides above, regenerate the full carousel, approve, or reject."
     )
+    approve_text = "✅ Approve Image" if is_single_image else "✅ Approve Carousel"
+    reject_text = "❌ Reject Image" if is_single_image else "❌ Reject Carousel"
+    regen_text = "🔄 Regenerate Image" if is_single_image else "🔄 Regenerate Full Carousel"
+
+    text = f"🖼️ *{title}*\n\n{description}"
 
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "✅ Approve Carousel", "callback_data": f"carouselapprove_{draft_id}"},
-                {"text": "❌ Reject Carousel", "callback_data": f"carouselreject_{draft_id}"}
+                {"text": approve_text, "callback_data": f"carouselapprove_{draft_id}"},
+                {"text": reject_text, "callback_data": f"carouselreject_{draft_id}"}
             ],
             [
-                {"text": "🔄 Regenerate Full Carousel", "callback_data": f"carouselregen_{draft_id}"}
+                {"text": regen_text, "callback_data": f"carouselregen_{draft_id}"}
             ]
         ]
     }

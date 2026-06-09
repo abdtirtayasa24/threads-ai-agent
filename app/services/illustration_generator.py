@@ -31,6 +31,77 @@ def decode_image_data_url(data_url: str) -> bytes:
 
     return base64.b64decode(match.group(1))
 
+async def generate_single_image_plan(content: str) -> dict:
+    system_prompt = load_prompt("illustration_single_style.md")
+
+    prompt_res = await client.chat.completions.create(
+        model=settings.AI_MODEL,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    "Create a single image-generation prompt for this post. "
+                    "Return only the required JSON format.\n\n"
+                    f"{content}"
+                )
+            }
+        ],
+        temperature=0.5
+    )
+
+    raw_output = prompt_res.choices[0].message.content
+    if not raw_output:
+        raise RuntimeError("AI did not return a single image plan.")
+
+    plan = extract_and_parse_json(raw_output)
+    if not plan.get("prompt"):
+        raise RuntimeError(f"AI did not return a single image prompt: {plan}")
+
+    return plan
+
+
+def flatten_single_image_prompt(plan: dict) -> str:
+    headline = plan.get("headline", "")
+    caption_text = plan.get("caption_text", "")
+    visual_prompt = plan.get("prompt", "")
+
+    text_instruction = ""
+    if headline or caption_text:
+        text_instruction = f"""
+Render this exact headline as readable text if provided:
+{headline}
+
+Render this exact supporting text as readable secondary text if provided:
+{caption_text}
+"""
+
+    return f"""Create one professional Threads image for a single post.
+Do not create a carousel.
+Do not generate multiple panels or multiple slides.
+{text_instruction}
+Consistent character requirement:
+Use the same recurring main character:
+- young Southeast Asian male tech worker
+- medium tan skin
+- neat black mustache
+- simple dark black hoodie
+- calm focused builder/developer appearance
+- minimalist anime-style facial features
+- no glasses unless explicitly requested
+- no beard other than the mustache
+
+Visual direction:
+{visual_prompt}
+
+Layout requirements:
+- Keep the image simple, relatable, and mobile-friendly.
+- If there is text, it must be large and readable.
+- Do not add extra words, labels, logos, hashtags, or watermarks.
+- Generate only this single image."""
+
+
 async def generate_carousel_plan(content: str) -> dict:
     system_prompt = load_prompt("illustration_style.md")
 
@@ -189,6 +260,27 @@ async def generate_image_from_prompt(draft_id: str, image_prompt: str, position:
     except Exception as e:
         print(f"❌ Failed to generate illustration: {e}")
         return None
+
+async def generate_single_image(draft_id: str, content: str) -> dict | None:
+    try:
+        plan = await generate_single_image_plan(content)
+        flattened_prompt = flatten_single_image_prompt(plan)
+        image_url = await generate_image_from_prompt(draft_id, flattened_prompt, 1)
+
+        if not image_url:
+            return None
+
+        return {
+            "image_url": image_url,
+            "position": 1,
+            "headline": plan.get("headline"),
+            "caption_text": plan.get("caption_text"),
+            "prompt": flattened_prompt,
+        }
+    except Exception as e:
+        print(f"❌ Failed to generate single illustration: {e}")
+        return None
+
 
 async def generate_carousel_images(draft_id: str, content: str) -> list[dict]:
     try:

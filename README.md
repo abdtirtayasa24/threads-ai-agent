@@ -6,9 +6,18 @@ The app uses FastAPI, SQLAlchemy, Telegram webhooks, Gemini/OpenAI-compatible AP
 
 ## Core Flow
 
-1. **Ideation**
+1. **Content strategy**
+   - `/changestyle` switches the active content strategy stored in `app_configs`.
+   - Style v1 uses `writer_system.md` and carousel media.
+   - Style v2 uses `writer_system_v2.md` with broader conversation-first Threads topics.
+   - Style v2 supports either text-only posts or single-image posts.
+   - Scheduler and manual jobs both use the active strategy.
+
+2. **Ideation**
    - `/ideate` or scheduler generates 2 unique post ideas.
    - The ideation prompt receives previous `thread_post_ideas` so the AI avoids repeats.
+   - Style v1 keeps ideas focused on AI, automation, data, CLI agents, and business workflows.
+   - Style v2 broadens ideas into work life, career anxiety, productivity, dashboard/spreadsheet culture, and relatable operational friction through Abdul’s AI/data/automation lens.
    - Scheduler skips ideation when there are 2+ approved unpublished drafts.
    - Telegram `/ideate` asks for confirmation when backlog is high.
    - `/addidea <topic> | <angle>` manually inserts a human idea and bypasses backlog checks.
@@ -19,22 +28,23 @@ The app uses FastAPI, SQLAlchemy, Telegram webhooks, Gemini/OpenAI-compatible AP
    - Telegram sends text draft approval buttons: approve, reject, regenerate.
    - Draft regeneration creates a new draft row and marks the old one as `regenerated`.
 
-3. **Two-step carousel review**
-   - Approving a text draft marks it `approved` and starts carousel generation.
-   - Carousel generation creates 3–6 slide images using:
-     - a carousel JSON plan from `app/prompts/illustration_style.md`
-     - flattened per-slide prompts before image generation
-   - Images are stored in `thread_post_images` and sent to Telegram one slide at a time.
-   - Each slide has its own regenerate button, which reuses the stored slide prompt and only replaces that slide image.
-   - Overall carousel buttons allow approve, reject, or regenerate full carousel.
-   - If carousel is rejected or fails, the already-approved text can still publish text-only.
+3. **Media review**
+   - Approving a text draft marks it `approved` and then follows the active media mode.
+   - `carousel`: generates 3–6 slide images using `app/prompts/illustration_style.md` and flattened per-slide prompts.
+   - `single_image`: generates one image using `app/prompts/illustration_single_style.md`.
+   - `text_only`: skips image generation and becomes ready to publish immediately.
+   - Images are stored in `thread_post_images` and sent to Telegram for approval.
+   - Carousel slides and single images can be regenerated individually by reusing the stored flattened prompt.
+   - Overall media buttons allow approve, reject, or regenerate full media.
+   - If media is rejected or fails, the already-approved text can still publish text-only.
 
 4. **Publishing**
    - `/publish` or scheduler publishes one approved draft FIFO.
    - Drafts with carousel status `generating` or `pending_approval` are skipped.
-   - If carousel is approved, stored images publish as Threads carousel.
-   - If carousel is rejected/failed/none, post publishes text-only.
-   - On carousel approval, a LinkedIn-ready PDF is generated in `static/pdfs/` and the public URL is sent to Telegram for manual LinkedIn upload.
+   - If media is approved, stored image(s) publish to Threads.
+   - Multiple approved images publish as a Threads carousel; one approved image publishes as a single-image post.
+   - If media is rejected/failed/none, post publishes text-only.
+   - On carousel approval with multiple images, a LinkedIn-ready PDF is generated in `static/pdfs/` and the public URL is sent to Telegram for manual LinkedIn upload.
 
 ## Important Files
 
@@ -44,12 +54,13 @@ The app uses FastAPI, SQLAlchemy, Telegram webhooks, Gemini/OpenAI-compatible AP
 - `app/jobs/generate_ideas.py` — ideation job, duplicate/backlog guard.
 - `app/jobs/generate_daily_drafts.py` — draft generation, draft regeneration, carousel generation.
 - `app/jobs/publish_approved_posts.py` — publishing approved drafts.
-- `app/services/ai_generator.py` — text draft and idea generation.
-- `app/services/illustration_generator.py` — carousel plan, flattened prompts, image generation.
+- `app/services/ai_generator.py` — text draft and idea generation using active writer style.
+- `app/services/content_strategy.py` — active writer style/media mode config helpers.
+- `app/services/illustration_generator.py` — carousel/single-image plans, flattened prompts, image generation.
 - `app/services/threads_client.py` — Threads text/image/carousel publishing.
 - `app/services/telegram_approval.py` — Telegram messages and approval UI.
 - `app/services/pdf_carousel_generator.py` — converts carousel images into LinkedIn PDF.
-- `app/prompts/` — writer, safety, style, and carousel illustration prompts.
+- `app/prompts/` — writer v1/v2, safety, style, carousel, and single-image prompts.
 
 ## Database Tables
 
@@ -122,6 +133,10 @@ Use ngrok or another public tunnel for local webhook testing.
 
 Primary commands:
 
+- `/changestyle` — switch content strategy:
+  - Style v1 → `writer_system.md` + carousel posts.
+  - Style v2 Text-post → `writer_system_v2.md` + text-only posts.
+  - Style v2 Image-post → `writer_system_v2.md` + single-image posts.
 - `/ideate` — generate new AI ideas; asks confirmation if approved draft backlog is high.
 - `/generate` — generate text drafts for pending ideas.
 - `/publish` — publish the next approved/resolved draft.
