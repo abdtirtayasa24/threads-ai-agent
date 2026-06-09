@@ -4,10 +4,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     AI_API_KEY: str
-    AI_MODEL: str = "gemini-3.1-flash-lite"
+    AI_MODEL: str
 
     OPENROUTER_API_KEY: str
-    IMAGE_MODEL: str = "google/gemini-3.1-flash-image-preview"
+    IMAGE_MODEL: str
 
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_CHAT_ID: str
