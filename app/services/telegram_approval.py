@@ -15,30 +15,45 @@ async def send_telegram_message(text: str, chat_id: str = None):
     async with httpx.AsyncClient() as client:
         await client.post(url, json=payload)
 
-async def send_carousel_for_approval(draft_id: uuid.UUID, image_urls: list[str], chat_id: str = None):
+async def send_carousel_slide_for_review(draft_id: uuid.UUID, image: dict, chat_id: str = None):
     target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
+    position = image.get("position")
+    headline = image.get("headline") or ""
+    caption_text = image.get("caption_text") or ""
 
-    async with httpx.AsyncClient() as client:
-        if len(image_urls) == 1:
-            photo_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendPhoto"
-            await client.post(photo_url, json={
-                "chat_id": target_chat_id,
-                "photo": image_urls[0]
-            })
-        else:
-            media_group_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMediaGroup"
-            media = [
-                {"type": "photo", "media": image_url}
-                for image_url in image_urls
+    caption = (
+        f"🖼️ *Carousel Slide {position}*\n"
+        f"*Headline:* {headline}\n"
+        f"*Caption:* {caption_text}"
+    )
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": f"🔄 Regenerate Slide {position}", "callback_data": f"slideregen_{draft_id}_{position}"}
             ]
-            await client.post(media_group_url, json={
-                "chat_id": target_chat_id,
-                "media": media
-            })
+        ]
+    }
 
+    photo_url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendPhoto"
+    async with httpx.AsyncClient() as client:
+        await client.post(photo_url, json={
+            "chat_id": target_chat_id,
+            "photo": image["image_url"],
+            "caption": caption,
+            "parse_mode": "Markdown",
+            "reply_markup": keyboard
+        })
+
+async def send_carousel_for_approval(draft_id: uuid.UUID, images: list[dict], chat_id: str = None):
+    for image in images:
+        await send_carousel_slide_for_review(draft_id, image, chat_id)
+
+    target_chat_id = chat_id or settings.TELEGRAM_CHAT_ID
     text = (
         f"🖼️ *Carousel Ready for Approval*\n\n"
-        f"Review the generated carousel images for this approved draft."
+        f"Review the generated carousel images for this approved draft.\n"
+        f"You can regenerate individual slides above, regenerate the full carousel, approve, or reject."
     )
 
     keyboard = {
@@ -48,7 +63,7 @@ async def send_carousel_for_approval(draft_id: uuid.UUID, image_urls: list[str],
                 {"text": "❌ Reject Carousel", "callback_data": f"carouselreject_{draft_id}"}
             ],
             [
-                {"text": "🔄 Regenerate Carousel", "callback_data": f"carouselregen_{draft_id}"}
+                {"text": "🔄 Regenerate Full Carousel", "callback_data": f"carouselregen_{draft_id}"}
             ]
         ]
     }

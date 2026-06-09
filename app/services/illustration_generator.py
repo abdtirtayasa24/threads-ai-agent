@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 import httpx
 import base64
 from io import BytesIO
@@ -175,7 +176,7 @@ async def generate_image_from_prompt(draft_id: str, image_prompt: str, position:
 
         watermarked_img = Image.alpha_composite(img, txt_layer).convert("RGB")
 
-        suffix = f"-{position}" if position is not None else ""
+        suffix = f"-{position}-{uuid.uuid4().hex[:8]}" if position is not None else ""
         filename = f"{safe_filename(draft_id)}{suffix}.jpg"
         filepath = os.path.join("static", "images", filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)

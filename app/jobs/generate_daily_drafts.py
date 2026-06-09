@@ -4,10 +4,10 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.models import ThreadPostIdea, ThreadPostDraft, ThreadPostLog, ThreadPostImage
 from app.services.ai_generator import generate_draft
-from app.services.illustration_generator import generate_carousel_images
+from app.services.illustration_generator import generate_carousel_images, generate_image_from_prompt
 from app.services.safety_checker import check_safety
 from app.services.style_checker import check_style
-from app.services.telegram_approval import send_carousel_for_approval, send_draft_for_approval, send_telegram_message
+from app.services.telegram_approval import send_carousel_for_approval, send_carousel_slide_for_review, send_draft_for_approval, send_telegram_message
 from app.config import settings
 
 async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
@@ -32,7 +32,7 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
         db.commit()
 
         generated_images = await generate_carousel_images(str(draft.id), draft.content)
-        image_urls = []
+        image_items = []
 
         for item in generated_images:
             image = ThreadPostImage(
@@ -44,9 +44,9 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
                 prompt=item.get("prompt"),
             )
             db.add(image)
-            image_urls.append(item["image_url"])
+            image_items.append(item)
 
-        if not image_urls:
+        if not image_items:
             draft.carousel_status = "failed"
             draft.carousel_rejection_reason = "No carousel images were generated"
             db.add(ThreadPostLog(draft_id=draft.id, action="carousel_failed", detail="No carousel images were generated"))
@@ -55,10 +55,10 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
             return
 
         draft.carousel_status = "pending_approval"
-        db.add(ThreadPostLog(draft_id=draft.id, action="carousel_generated", detail=f"Generated {len(image_urls)} image(s)"))
+        db.add(ThreadPostLog(draft_id=draft.id, action="carousel_generated", detail=f"Generated {len(image_items)} image(s)"))
         db.commit()
 
-        await send_carousel_for_approval(draft.id, image_urls, chat_id)
+        await send_carousel_for_approval(draft.id, image_items, chat_id)
 
     except Exception as e:
         try:
@@ -70,6 +70,48 @@ async def generate_carousel_for_draft(draft_id: uuid.UUID, chat_id: str = None):
                 db.commit()
         finally:
             await send_telegram_message(f"❌ *Carousel Generation Failed!*\nError: `{str(e)}`\n\nThe approved text can still be published text-only.", chat_id)
+    finally:
+        db.close()
+
+
+async def regenerate_carousel_slide(draft_id: uuid.UUID, position: int, chat_id: str = None):
+    db: Session = SessionLocal()
+    try:
+        image = db.query(ThreadPostImage).filter(
+            ThreadPostImage.draft_id == draft_id,
+            ThreadPostImage.position == position
+        ).first()
+
+        if not image:
+            await send_telegram_message(f"❌ *Slide Regeneration Failed:* Slide {position} not found.", chat_id)
+            return
+
+        if not image.prompt:
+            await send_telegram_message(f"❌ *Slide Regeneration Failed:* Slide {position} has no stored prompt.", chat_id)
+            return
+
+        image_url = await generate_image_from_prompt(str(draft_id), image.prompt, position)
+        if not image_url:
+            await send_telegram_message(f"❌ *Slide Regeneration Failed:* No image returned for slide {position}.", chat_id)
+            return
+
+        image.image_url = image_url
+        db.add(ThreadPostLog(draft_id=draft_id, action="carousel_slide_regenerated", detail=f"Slide {position}"))
+        db.commit()
+
+        await send_carousel_slide_for_review(draft_id, {
+            "image_url": image.image_url,
+            "position": image.position,
+            "headline": image.headline,
+            "caption_text": image.caption_text,
+        }, chat_id)
+        await send_telegram_message(
+            f"✅ *Slide {position} regenerated.*\nIf the full carousel looks good, use the carousel approval message to approve it.",
+            chat_id
+        )
+
+    except Exception as e:
+        await send_telegram_message(f"❌ *Slide Regeneration Failed!*\nError: `{str(e)}`", chat_id)
     finally:
         db.close()
 

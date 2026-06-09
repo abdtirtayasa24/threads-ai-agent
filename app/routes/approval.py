@@ -12,7 +12,7 @@ from app.services.scheduler import update_job_schedule, get_config
 from app.config import settings
 
 from app.jobs.generate_ideas import count_approved_unpublished_drafts, run_ideation, idea_key
-from app.jobs.generate_daily_drafts import generate_carousel_for_draft, run_generation, regenerate_draft
+from app.jobs.generate_daily_drafts import generate_carousel_for_draft, regenerate_carousel_slide, run_generation, regenerate_draft
 from app.jobs.publish_approved_posts import run_publisher
 
 router = APIRouter(prefix="/api/approval", tags=["Approval"])
@@ -54,6 +54,19 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
                     "text": f"{callback['message']['text']}\n\n*{response_text}*",
                     "parse_mode": "Markdown"
                 })
+            return {"status": "ok"}
+
+        if callback_data.startswith("slideregen_"):
+            payload = callback_data[len("slideregen_"):]
+            draft_id_str, position_str = payload.rsplit("_", 1)
+            try:
+                draft_uuid = uuid.UUID(draft_id_str)
+                position = int(position_str)
+            except ValueError:
+                return {"status": "error", "message": "Invalid slide regeneration callback"}
+
+            background_tasks.add_task(regenerate_carousel_slide, draft_uuid, position, str(chat_id))
+            await send_telegram_message(f"🔄 Regenerating carousel slide {position}...", str(chat_id))
             return {"status": "ok"}
 
         action, draft_id_str = callback_data.split("_", 1)
