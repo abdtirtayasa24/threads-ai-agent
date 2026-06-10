@@ -81,8 +81,13 @@ Render this exact supporting text as readable secondary text if provided:
 Do not create a carousel.
 Do not generate multiple panels or multiple slides.
 {text_instruction}
-Consistent character requirement:
-Use the same recurring main character:
+
+---
+
+## Consistent character requirement:
+
+### Use the same recurring main character:
+
 - young Southeast Asian male tech worker
 - medium tan skin
 - neat black mustache
@@ -92,10 +97,11 @@ Use the same recurring main character:
 - no glasses unless explicitly requested
 - no beard other than the mustache
 
-Visual direction:
+### Visual direction:
+
 {visual_prompt}
 
-Layout requirements:
+### Layout requirements:
 - Keep the image simple, relatable, and mobile-friendly.
 - If there is text, it must be large and readable.
 - Do not add extra words, labels, logos, hashtags, or watermarks.
@@ -150,8 +156,12 @@ Render this exact headline as large, dominant, readable text:
 Render this exact supporting text as clearly readable secondary text, not tiny:
 {caption_text}
 
-Consistent character requirement:
-Use the same recurring main character in this slide:
+---
+
+## Consistent character requirement:
+
+### Use the same recurring main character in this slide:
+
 - young Southeast Asian male tech worker
 - medium tan skin
 - neat black mustache
@@ -161,10 +171,12 @@ Use the same recurring main character in this slide:
 - no glasses unless explicitly requested
 - no beard other than the mustache
 
-Visual direction:
+### Visual direction:
+
 {visual_prompt}
 
-Text layout requirements:
+### Text layout requirements:
+
 - Headline must be the main readable text.
 - Supporting text must be large enough to read on mobile.
 - Do not add extra words, labels, logos, hashtags, or watermarks.
