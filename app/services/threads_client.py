@@ -4,7 +4,6 @@ import asyncio
 from app.config import settings
 
 THREADS_API_BASE = "https://graph.threads.net/v1.0"
-
 async def create_threads_container(
         client: httpx.AsyncClient,
         text: str | None = None,
@@ -46,7 +45,44 @@ async def create_threads_container(
     if not container_id:
         raise RuntimeError(f"Threads API did not return container id: {create_res.text}")
 
+    media_type = create_payload.get("media_type")
+    print(f"Threads container created | media_type={media_type} | is_carousel_item={is_carousel_item} | id={container_id}")
     return container_id
+
+async def create_carousel_parent_with_retry(
+        client: httpx.AsyncClient,
+        text: str,
+        reply_to_id: str | None,
+        child_container_ids: list[str],
+        max_attempts: int = 6,
+        delay_seconds: int = 10,
+    ) -> str:
+    """Create carousel parent after child containers have had time to process.
+
+    Threads does not expose the Instagram-style `status_code` field for media
+    containers, so readiness is handled by retrying parent creation.
+    """
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            await asyncio.sleep(delay_seconds)
+
+        try:
+            print(f"Creating Threads carousel parent attempt {attempt}/{max_attempts} | children={child_container_ids}")
+            return await create_threads_container(
+                client,
+                text=text,
+                reply_to_id=reply_to_id,
+                image_urls=child_container_ids,
+            )
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            status_code = e.response.status_code if e.response is not None else "unknown"
+            body = e.response.text if e.response is not None else ""
+            print(f"Threads carousel parent create failed attempt {attempt}/{max_attempts} | status={status_code}")
+            print(body)
+
+    raise last_error or RuntimeError("Threads carousel parent creation failed")
 
 async def publish_threads_container(client: httpx.AsyncClient, container_id: str) -> str:
     publish_url = f"{THREADS_API_BASE}/{settings.THREADS_USER_ID}/threads_publish"
@@ -94,19 +130,21 @@ async def create_and_publish_container(
     async with httpx.AsyncClient(timeout=30) as client:
         if image_urls and len(image_urls) > 1:
             child_container_ids = []
-            for url in image_urls:
+            for index, url in enumerate(image_urls, start=1):
                 child_container_id = await create_threads_container(
                     client,
                     image_url=url,
                     is_carousel_item=True,
                 )
                 child_container_ids.append(child_container_id)
+                print(f"Waiting briefly after carousel child {index}/{len(image_urls)} creation...")
+                await asyncio.sleep(5)
 
-            container_id = await create_threads_container(
+            container_id = await create_carousel_parent_with_retry(
                 client,
                 text=text,
                 reply_to_id=reply_to_id,
-                image_urls=child_container_ids,
+                child_container_ids=child_container_ids,
             )
         else:
             single_image_url = image_url or (image_urls[0] if image_urls else None)
